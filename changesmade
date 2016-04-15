@@ -1,0 +1,9 @@
+In floodlightdefault.properties
+
+net.floodlightcontroller.forwarding.Forwarding.flood-arp=NO
+
+
+try
+
+1.flooding
+2.h1 ping h1
