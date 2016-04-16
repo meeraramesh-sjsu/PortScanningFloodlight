@@ -24,6 +24,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Map.Entry;
+import java.util.logging.FileHandler;
 
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
@@ -82,17 +84,175 @@ import org.projectfloodlight.openflow.types.VlanVid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import ch.qos.logback.classic.filter.ThresholdFilter;
+
 public class Forwarding extends ForwardingBase implements IFloodlightModule, IOFSwitchListener {
 	protected static Logger log = LoggerFactory.getLogger(Forwarding.class);
 
+
+	public Map<IPv4Address,Integer> threshold=new Map<IPv4Address, Integer>() {
+		
+		@Override
+		public Collection<Integer> values() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public int size() {
+			// TODO Auto-generated method stub
+			return 0;
+		}
+		
+		@Override
+		public Integer remove(Object key) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public void putAll(Map<? extends IPv4Address, ? extends Integer> m) {
+			// TODO Auto-generated method stub
+			
+		}
+		
+		@Override
+		public Integer put(IPv4Address key, Integer value) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public Set<IPv4Address> keySet() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public boolean isEmpty() {
+			// TODO Auto-generated method stub
+			return false;
+		}
+		
+		@Override
+		public Integer get(Object key) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public Set<Entry<IPv4Address, Integer>> entrySet() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public boolean containsValue(Object value) {
+			// TODO Auto-generated method stub
+			return false;
+		}
+		
+		@Override
+		public boolean containsKey(Object key) {
+			// TODO Auto-generated method stub
+			return false;
+		}
+		
+		@Override
+		public void clear() {
+			// TODO Auto-generated method stub
+			
+		}
+	};
+
+	public Map<IPv4Address,Map<IPv4Address,Integer>> horizscan=new Map<IPv4Address, Map<IPv4Address,Integer>>() {
+		
+		@Override
+		public Collection<Map<IPv4Address, Integer>> values() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public int size() {
+			// TODO Auto-generated method stub
+			return 0;
+		}
+		
+		@Override
+		public Map<IPv4Address, Integer> remove(Object key) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public void putAll(
+				Map<? extends IPv4Address, ? extends Map<IPv4Address, Integer>> m) {
+			// TODO Auto-generated method stub
+			
+		}
+		
+		@Override
+		public Map<IPv4Address, Integer> put(IPv4Address key,
+				Map<IPv4Address, Integer> value) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public Set<IPv4Address> keySet() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public boolean isEmpty() {
+			// TODO Auto-generated method stub
+			return false;
+		}
+		
+		@Override
+		public Map<IPv4Address, Integer> get(Object key) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public Set<Entry<IPv4Address, Map<IPv4Address, Integer>>> entrySet() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+		
+		@Override
+		public boolean containsValue(Object value) {
+			// TODO Auto-generated method stub
+			return false;
+		}
+		
+		@Override
+		public boolean containsKey(Object key) {
+			// TODO Auto-generated method stub
+			return false;
+		}
+		
+		@Override
+		public void clear() {
+			// TODO Auto-generated method stub
+			
+		}
+	}; 
+		
 	@Override
 	public Command processPacketInMessage(IOFSwitch sw, OFPacketIn pi, IRoutingDecision decision, FloodlightContext cntx) {
+		
+		log.info("Processing Packet In message");
+		//T is ethernet
 		Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
 		// We found a routing decision (i.e. Firewall is enabled... it's the only thing that makes RoutingDecisions)
 		if (decision != null) {
-			if (log.isTraceEnabled()) {
-				log.trace("Forwarding decision={} was made for PacketIn={}", decision.getRoutingAction().toString(), pi);
-			}
+			//if (log.isTraceEnabled()) {
+				log.info("Forwarding decision={} was made for PacketIn={}", decision.getRoutingAction().toString(), pi);
+		//	}
 
 			switch(decision.getRoutingAction()) {
 			case NONE:
@@ -114,11 +274,12 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 				return Command.CONTINUE;
 			}
 		} else { // No routing decision was found. Forward to destination or flood if bcast or mcast.
-			if (log.isTraceEnabled()) {
-				log.trace("No decision was made for PacketIn={}, forwarding", pi);
-			}
+			//if (log.isTraceEnabled()) {
+				log.info("No decision was made for PacketIn={}, forwarding", pi);
+			//}
 
 			if (eth.isBroadcast() || eth.isMulticast()) {
+				System.out.println("Packet is multicast or broadcast");
 				doFlood(sw, pi, cntx);
 			} else {
 				doForwardFlow(sw, pi, cntx, false);
@@ -157,6 +318,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 	}
 
 	protected void doForwardFlow(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, boolean requestFlowRemovedNotifn) {
+		System.out.println("Doing forward flow");
 		OFPort inPort = (pi.getVersion().compareTo(OFVersion.OF_12) < 0 ? pi.getInPort() : pi.getMatch().get(MatchField.IN_PORT));
 		IDevice dstDevice = IDeviceService.fcStore.get(cntx, IDeviceService.CONTEXT_DST_DEVICE);
 		DatapathId source = sw.getId();
@@ -165,7 +327,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 			IDevice srcDevice = IDeviceService.fcStore.get(cntx, IDeviceService.CONTEXT_SRC_DEVICE);
 
 			if (srcDevice == null) {
-				log.error("No device entry found for source device. Is the device manager running? If so, report bug.");
+				log.trace("No device entry found for source device. Is the device manager running? If so, report bug.");
 				return;
 			}
 			
@@ -219,14 +381,14 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 			 * of a link.
 			 */
 			if (dstDap == null) {
-				log.warn("Could not locate edge attachment point for device {}. Flooding packet");
+				log.info("Could not locate edge attachment point for device {}. Flooding packet");
 				doFlood(sw, pi, cntx);
 				return; 
 			}
 			
 			/* It's possible that we learned packed destination while it was in flight */
 			if (!topologyService.isEdge(source, inPort)) {	
-				log.debug("Packet destination is known, but packet was not received on an edge port (rx on {}/{}). Flooding packet", source, inPort);
+				log.trace("Packet destination is known, but packet was not received on an edge port (rx on {}/{}). Flooding packet", source, inPort);
 				doFlood(sw, pi, cntx);
 				return; 
 			}				
@@ -266,7 +428,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 						OFFlowModCommand.ADD);
 			}
 		} else {
-			log.debug("Destination unknown. Flooding packet");
+			log.info("Destination unknown. Flooding packet");
 			doFlood(sw, pi, cntx);
 		}
 	}
@@ -283,6 +445,8 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 	 * @return a composed Match object based on the provided information
 	 */
 	protected Match createMatchFromPacket(IOFSwitch sw, OFPort inPort, FloodlightContext cntx) {
+			int count=0;
+		System.out.println("Creating match from packet called");
 		// The packet in match will only contain the port number.
 		// We need to add in specifics for the hosts we're routing between.
 		Ethernet eth = IFloodlightProviderService.bcStore.get(cntx, IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
@@ -305,7 +469,8 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 		}
 
 		// TODO Detect switch type and match to create hardware-implemented flow
-		if (eth.getEtherType() == EthType.IPv4) { /* shallow check for equality is okay for EthType */
+		if (eth.getEtherType() == EthType.IPv4) {
+			/* shallow check for equality is okay for EthType */
 			IPv4 ip = (IPv4) eth.getPayload();
 			IPv4Address srcIp = ip.getSourceAddress();
 			IPv4Address dstIp = ip.getDestinationAddress();
@@ -326,18 +491,147 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 				}
 				
 				if (ip.getProtocol().equals(IpProtocol.TCP)) {
+				
 					TCP tcp = (TCP) ip.getPayload();
+					int flags=tcp.getFlags();
+					log.info("From Port Scanner "+srcIp + "to Destn IPaddress:" + dstIp + "flags" + flags + "\n" );
+					try
+					{
+if(flags==20) 
+	{
+	log.info("flags == 20");
+	
+	if(horizscan.containsKey(srcIp))
+	{
+		threshold=horizscan.get(srcIp);
+		if(threshold.containsKey(dstIp))
+		{
+			count= threshold.get(dstIp);
+			System.out.print(count);
+		threshold.put(dstIp, count++);
+			if(count > 5) log.info("Horizontal scan: Attacker is " + dstIp + " Victim is  " + srcIp);
+		}
+		else
+			{
+		threshold.put(dstIp, 1);		
+			}
+		
+	}
+	else
+	{Map<IPv4Address,Integer> attacker=new Map<IPv4Address, Integer>() {
+
+		@Override
+		public void clear() {
+			// TODO Auto-generated method stub
+			
+		}
+
+		@Override
+		public boolean containsKey(Object key) {
+			// TODO Auto-generated method stub
+			return false;
+		}
+
+		@Override
+		public boolean containsValue(Object value) {
+			// TODO Auto-generated method stub
+			return false;
+		}
+
+		@Override
+		public Set<java.util.Map.Entry<IPv4Address, Integer>> entrySet() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+
+		@Override
+		public Integer get(Object key) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+
+		@Override
+		public boolean isEmpty() {
+			// TODO Auto-generated method stub
+			return false;
+		}
+
+		@Override
+		public Set<IPv4Address> keySet() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+
+		@Override
+		public Integer put(IPv4Address key, Integer value) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+
+		@Override
+		public void putAll(
+				Map<? extends IPv4Address, ? extends Integer> m) {
+			// TODO Auto-generated method stub
+			
+		}
+
+		@Override
+		public Integer remove(Object key) {
+			// TODO Auto-generated method stub
+			return null;
+		}
+
+		@Override
+		public int size() {
+			// TODO Auto-generated method stub
+			return 0;
+		}
+
+		@Override
+		public Collection<Integer> values() {
+			// TODO Auto-generated method stub
+			return null;
+		}
+	};
+	attacker.put(dstIp, 1);
+horizscan.put(srcIp, attacker);
+
+	}
+				
+//						
+//						if(threshold.containsKey(dstIp))
+//						{
+//							count= threshold.get(dstIp);
+//							threshold.put(dstIp, count++);
+//						}
+//						else
+//						{
+//						threshold.put(dstIp, count++);
+//						}
+//						System.out.println("Count"+count);
+//						if(count > 5) System.out.println("Threshold has been exceeded." + dstIp + "This is a Scanner");
+//						
+	}
+					}
+					catch(Exception e)
+					{
+						System.out.println(e.getMessage());
+						e.printStackTrace();
+						
+					}
 					mb.setExact(MatchField.IP_PROTO, IpProtocol.TCP)
 					.setExact(MatchField.TCP_SRC, tcp.getSourcePort())
 					.setExact(MatchField.TCP_DST, tcp.getDestinationPort());
 				} else if (ip.getProtocol().equals(IpProtocol.UDP)) {
+					System.out.println("UDP packet");
 					UDP udp = (UDP) ip.getPayload();
 					mb.setExact(MatchField.IP_PROTO, IpProtocol.UDP)
 					.setExact(MatchField.UDP_SRC, udp.getSourcePort())
 					.setExact(MatchField.UDP_DST, udp.getDestinationPort());
 				}
 			}
-		} else if (eth.getEtherType() == EthType.ARP) { /* shallow check for equality is okay for EthType */
+		} else if (eth.getEtherType() == EthType.ARP) {
+			System.out.println("ARP packet");/* shallow check for equality is okay for EthType */
 			mb.setExact(MatchField.ETH_TYPE, EthType.ARP);
 		} else if (eth.getEtherType() == EthType.IPv6) {
 			IPv6 ip = (IPv6) eth.getPayload();
@@ -361,6 +655,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 				
 				if (ip.getNextHeader().equals(IpProtocol.TCP)) {
 					TCP tcp = (TCP) ip.getPayload();
+				
 					mb.setExact(MatchField.IP_PROTO, IpProtocol.TCP)
 					.setExact(MatchField.TCP_SRC, tcp.getSourcePort())
 					.setExact(MatchField.TCP_DST, tcp.getDestinationPort());
@@ -394,7 +689,7 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 			/* Must be a single-switch w/no links */
 			broadcastPorts = Collections.singleton(OFPort.FLOOD);
 		}
-		
+		//??????output
 		for (OFPort p : broadcastPorts) {
 			if (p.equals(inPort)) continue;
 			actions.add(sw.getOFFactory().actions().output(p, Integer.MAX_VALUE));
@@ -407,13 +702,13 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 		pob.setData(pi.getData());
 
 		try {
-			if (log.isTraceEnabled()) {
-				log.trace("Writing flood PacketOut switch={} packet-in={} packet-out={}",
+		//	if (log.isTraceEnabled()) {
+				log.info("Writing flood PacketOut switch={} packet-in={} packet-out={}",
 						new Object[] {sw, pi, pob.build()});
-			}
+		//	}
 			messageDamper.write(sw, pob.build());
 		} catch (IOException e) {
-			log.error("Failure writing PacketOut switch={} packet-in={} packet-out={}",
+			log.info("Failure writing PacketOut switch={} packet-in={} packet-out={}",
 					new Object[] {sw, pi, pob.build()}, e);
 		}
 
@@ -496,7 +791,6 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule, IOF
 				FLOWMOD_DEFAULT_MATCH_MAC = tmp.contains("mac") ? true : false;
 				FLOWMOD_DEFAULT_MATCH_IP_ADDR = tmp.contains("ip") ? true : false;
 				FLOWMOD_DEFAULT_MATCH_TRANSPORT = tmp.contains("port") ? true : false;
-
 			}
 		}
 		log.info("Default flow matches set to: VLAN=" + FLOWMOD_DEFAULT_MATCH_VLAN
