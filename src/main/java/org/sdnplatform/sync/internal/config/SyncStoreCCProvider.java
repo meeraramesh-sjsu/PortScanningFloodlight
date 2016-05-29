@@ -26,7 +26,7 @@ import org.sdnplatform.sync.Versioned;
 import org.sdnplatform.sync.error.ObsoleteVersionException;
 import org.sdnplatform.sync.error.SyncException;
 import org.sdnplatform.sync.internal.SyncManager;
-import org.sdnplatform.sync.internal.config.bootstrap.BootstrapClient;
+import org.sdnplatform.sync.internal.config.bootstrap.Bootstrap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -345,7 +345,7 @@ public class SyncStoreCCProvider
                         hosts.add(HostAndPort.fromString(s).
                                       withDefaultPort(6642));
                     }
-                    BootstrapClient bs = new BootstrapClient(syncManager,
+                    Bootstrap bs = new Bootstrap(syncManager,
                                                  authScheme,
                                                  keyStorePath, 
                                                  keyStorePassword);

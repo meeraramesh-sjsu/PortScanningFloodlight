@@ -3,34 +3,27 @@ package org.sdnplatform.sync.internal.remote;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.group.ChannelGroup;
-import io.netty.channel.group.DefaultChannelGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.util.HashedWheelTimer;
-import io.netty.util.concurrent.GlobalEventExecutor;
-
+import org.jboss.netty.bootstrap.ClientBootstrap;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFuture;
+import org.jboss.netty.channel.group.ChannelGroup;
+import org.jboss.netty.channel.group.DefaultChannelGroup;
+import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.sdnplatform.sync.error.RemoteStoreException;
 import org.sdnplatform.sync.error.SyncException;
 import org.sdnplatform.sync.error.SyncRuntimeException;
 import org.sdnplatform.sync.error.UnknownStoreException;
 import org.sdnplatform.sync.internal.AbstractSyncManager;
 import org.sdnplatform.sync.internal.config.AuthScheme;
-import org.sdnplatform.sync.internal.config.ClusterConfig;
-import org.sdnplatform.sync.internal.rpc.IRPCListener;
 import org.sdnplatform.sync.internal.rpc.RPCService;
 import org.sdnplatform.sync.internal.rpc.TProtocolUtil;
 import org.sdnplatform.sync.internal.store.IStore;
@@ -44,6 +37,8 @@ import org.sdnplatform.sync.thrift.Store;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import net.floodlightcontroller.core.annotations.LogMessageCategory;
+import net.floodlightcontroller.core.annotations.LogMessageDoc;
 import net.floodlightcontroller.core.module.FloodlightModuleContext;
 import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightService;
@@ -53,6 +48,7 @@ import net.floodlightcontroller.core.module.IFloodlightService;
  * remote sync manager over a TCP connection
  * @author readams
  */
+@LogMessageCategory("State Synchronization")
 public class RemoteSyncManager extends AbstractSyncManager {
     protected static final Logger logger =
             LoggerFactory.getLogger(RemoteSyncManager.class.getName());
@@ -60,9 +56,10 @@ public class RemoteSyncManager extends AbstractSyncManager {
     /**
      * Channel group that will hold all our channels
      */
-    final ChannelGroup cg = new DefaultChannelGroup("Internal RPC", GlobalEventExecutor.INSTANCE);
-    RemoteSyncChannelInitializer pipelineFactory;
-    EventLoopGroup workerExecutor;
+    final ChannelGroup cg = new DefaultChannelGroup("Internal RPC");
+    RemoteSyncPipelineFactory pipelineFactory;
+    ExecutorService bossExecutor;
+    ExecutorService workerExecutor;
 
     /**
      * Active connection to server
@@ -81,7 +78,7 @@ public class RemoteSyncManager extends AbstractSyncManager {
     /**
      * Client bootstrap
      */
-    protected Bootstrap clientBootstrap;
+    protected ClientBootstrap clientBootstrap;
     
     /**
      * Transaction ID used in message headers in the RPC protocol
@@ -97,11 +94,6 @@ public class RemoteSyncManager extends AbstractSyncManager {
      * Port to connect to
      */
     protected int port = 6642;
-    
-    /**
-     * Timer for Netty
-     */
-    private HashedWheelTimer timer;
     
     protected AuthScheme authScheme;
     protected String keyStorePath;
@@ -164,16 +156,19 @@ public class RemoteSyncManager extends AbstractSyncManager {
                 logger.debug("Failed to cleanly shut down remote sync");
                 return;
             }
+            if (clientBootstrap != null) {
+                clientBootstrap.releaseExternalResources();
+            }
             clientBootstrap = null;
+            if (pipelineFactory != null)
+                pipelineFactory.releaseExternalResources();
             pipelineFactory = null;
-            if (workerExecutor != null) {
-            	workerExecutor.shutdownGracefully();
-            	workerExecutor = null;
-            }
-            if (timer != null) {
-            	timer.stop();
-            	timer = null;
-            }
+            if (workerExecutor != null)
+                workerExecutor.shutdown();
+            workerExecutor = null;
+            if (bossExecutor != null)
+                bossExecutor.shutdown();
+            bossExecutor = null;
         } catch (InterruptedException e) {
             logger.debug("Interrupted while shutting down remote sync");
         }
@@ -203,22 +198,24 @@ public class RemoteSyncManager extends AbstractSyncManager {
     public void startUp(FloodlightModuleContext context) 
             throws FloodlightModuleException {
         shutdown = false;
-        workerExecutor = new NioEventLoopGroup();
-        timer = new HashedWheelTimer();
+        bossExecutor = Executors.newCachedThreadPool();
+        workerExecutor = Executors.newCachedThreadPool();
         
-        pipelineFactory = new RemoteSyncChannelInitializer(timer, this);
-        
-        final Bootstrap bootstrap = new Bootstrap()
-        .channel(NioSocketChannel.class)
-        .group(workerExecutor)
-        .option(ChannelOption.SO_REUSEADDR, true)
-        .option(ChannelOption.SO_KEEPALIVE, true)
-        .option(ChannelOption.TCP_NODELAY, true)
-        .option(ChannelOption.SO_SNDBUF, RPCService.SEND_BUFFER_SIZE)
-        .option(ChannelOption.SO_RCVBUF, RPCService.SEND_BUFFER_SIZE)
-        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, RPCService.CONNECT_TIMEOUT)
-        .handler(pipelineFactory);
-        
+        final ClientBootstrap bootstrap =
+                new ClientBootstrap(
+                     new NioClientSocketChannelFactory(bossExecutor,
+                                                       workerExecutor));
+        bootstrap.setOption("child.reuseAddr", true);
+        bootstrap.setOption("child.keepAlive", true);
+        bootstrap.setOption("child.tcpNoDelay", true);
+        bootstrap.setOption("child.sendBufferSize", 
+                            RPCService.SEND_BUFFER_SIZE);
+        bootstrap.setOption("child.receiveBufferSize", 
+                            RPCService.SEND_BUFFER_SIZE);
+        bootstrap.setOption("child.connectTimeoutMillis", 
+                            RPCService.CONNECT_TIMEOUT);
+        pipelineFactory = new RemoteSyncPipelineFactory(this);
+        bootstrap.setPipelineFactory(pipelineFactory);
         clientBootstrap = bootstrap;
     }
 
@@ -270,10 +267,14 @@ public class RemoteSyncManager extends AbstractSyncManager {
                 }
             }
         }
-        channel.writeAndFlush(request); 
+        channel.write(request); 
         return future;
     }
 
+    @LogMessageDoc(level="WARN",
+                   message="Unexpected sync message reply type={type} id={id}",
+                   explanation="An error occurred in the sync protocol",
+                   recommendation=LogMessageDoc.REPORT_CONTROLLER_BUG)
     public void dispatchReply(int xid,
                               SyncReply reply) {
         RemoteSyncFuture future = futureMap.get(Integer.valueOf(xid));
@@ -322,24 +323,24 @@ public class RemoteSyncManager extends AbstractSyncManager {
 
     protected boolean connect(String hostname, int port) {
         ready = false;
-        if (channel == null || !channel.isActive()) {
+        if (channel == null || !channel.isConnected()) {
             SocketAddress sa =
                     new InetSocketAddress(hostname, port);
             ChannelFuture future = clientBootstrap.connect(sa);
             future.awaitUninterruptibly();
             if (!future.isSuccess()) {
                 logger.error("Could not connect to " + hostname + 
-                             ":" + port, future.cause());
+                             ":" + port, future.getCause());
                 return false;
             }
-            channel = future.channel();
+            channel = future.getChannel();
         }
-        while (!ready && channel != null && channel.isActive()) {
+        while (!ready && channel != null && channel.isConnected()) {
             try {
                 Thread.sleep(10);
             } catch (InterruptedException e) { }
         }
-        if (!ready || channel == null || !channel.isActive()) {
+        if (!ready || channel == null || !channel.isConnected()) {
             logger.warn("Timed out connecting to {}:{}", hostname, port);
             return false;
         }
@@ -373,17 +374,4 @@ public class RemoteSyncManager extends AbstractSyncManager {
             throw new RemoteStoreException("Error while waiting for reply", e);
         }        
     }
-
-	
-	@Override
-	public void addRPCListener(IRPCListener listener) {
-		// TODO Auto-generated method stub
-		
-	}
-
-	@Override
-	public void removeRPCListener(IRPCListener listener) {
-		// TODO Auto-generated method stub
-		
-	}
 }

@@ -19,18 +19,23 @@ package org.sdnplatform.sync.internal.rpc;
 
 import java.util.concurrent.TimeUnit;
 
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.Timeout;
-import io.netty.util.Timer;
-import io.netty.util.TimerTask;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
+import org.jboss.netty.channel.Channels;
+import org.jboss.netty.channel.SimpleChannelUpstreamHandler;
+import org.jboss.netty.util.ExternalResourceReleasable;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.Timer;
+import org.jboss.netty.util.TimerTask;
 import org.sdnplatform.sync.error.HandshakeTimeoutException;
 
 
 /**
  * Trigger a timeout if a switch fails to complete handshake soon enough
  */
-public class HandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
+public class HandshakeTimeoutHandler 
+    extends SimpleChannelUpstreamHandler
+    implements ExternalResourceReleasable {
     static final HandshakeTimeoutException EXCEPTION = 
             new HandshakeTimeoutException();
     
@@ -50,23 +55,27 @@ public class HandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
     }
     
     @Override
-    public void channelActive(ChannelHandlerContext ctx)
+    public void channelOpen(ChannelHandlerContext ctx, ChannelStateEvent e)
             throws Exception {
         if (timeoutNanos > 0) {
             timeout = timer.newTimeout(new HandshakeTimeoutTask(ctx), 
                                        timeoutNanos, TimeUnit.NANOSECONDS);
         }
-        ctx.fireChannelActive();
+        ctx.sendUpstream(e);
     }
     
     @Override
-    public void channelInactive(ChannelHandlerContext ctx)
+    public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e)
             throws Exception {
         if (timeout != null) {
             timeout.cancel();
             timeout = null;
         }
-        ctx.fireChannelInactive();
+    }
+
+    @Override
+    public void releaseExternalResources() {
+        timer.stop();
     }
     
     private final class HandshakeTimeoutTask implements TimerTask {
@@ -83,14 +92,14 @@ public class HandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            if (!ctx.channel().isOpen()) {
+            if (!ctx.getChannel().isOpen()) {
                 return;
             }
             if (!handler.isClientConnection && 
                 ((handler.remoteNode == null ||
                  !handler.rpcService.isConnected(handler.remoteNode.
                                                  getNodeId()))))
-                ctx.fireExceptionCaught(EXCEPTION);
+                Channels.fireExceptionCaught(ctx, EXCEPTION);
         }
     }
 }

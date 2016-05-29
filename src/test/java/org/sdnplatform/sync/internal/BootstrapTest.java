@@ -51,7 +51,8 @@ public class BootstrapTest {
 
         int curPort = 6699;
         
-        String keyStorePath = new File(dbFolder.getRoot(), "keystore.jceks").getAbsolutePath();
+        String keyStorePath = new File(dbFolder.getRoot(), 
+                                       "keystore.jceks").getAbsolutePath();
         String keyStorePassword = "bootstrapping is fun!";
         CryptoUtil.writeSharedSecret(keyStorePath, 
                                      keyStorePassword, 
@@ -109,7 +110,7 @@ public class BootstrapTest {
             unsyncStore.put("seeds", curSeed);
 
             waitForValue(unsyncStore, "localNodeId", null, 
-                         10000, "unsyncStore" + i);
+                         3000, "unsyncStore" + i);
             short nodeId = 
                     Short.parseShort(unsyncStore.getValue("localNodeId"));
             Node node = nodeStore.getValue(nodeId);

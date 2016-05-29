@@ -6,11 +6,14 @@ import java.util.List;
 import java.util.Random;
 import java.util.Map.Entry;
 
+import net.floodlightcontroller.core.annotations.LogMessageCategory;
+import net.floodlightcontroller.core.annotations.LogMessageDoc;
 import net.floodlightcontroller.debugcounter.IDebugCounter;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandlerContext;
-
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
+import org.jboss.netty.channel.MessageEvent;
 import org.sdnplatform.sync.IClosableIterator;
 import org.sdnplatform.sync.IStoreClient;
 import org.sdnplatform.sync.IVersion;
@@ -39,6 +42,7 @@ import org.slf4j.LoggerFactory;
  * Channel handler for the RPC service
  * @author readams
  */
+@LogMessageCategory("State Synchronization")
 public class RPCChannelHandler extends AbstractRPCChannelHandler {
     protected static final Logger logger =
             LoggerFactory.getLogger(RPCChannelHandler.class);
@@ -60,17 +64,17 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
     // ****************************
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        rpcService.getChannelGroup().add(ctx.channel());
-        super.channelActive(ctx);
+    public void channelOpen(ChannelHandlerContext ctx,
+                            ChannelStateEvent e) throws Exception {
+        rpcService.cg.add(ctx.getChannel());
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    public void channelDisconnected(ChannelHandlerContext ctx,
+                                    ChannelStateEvent e) throws Exception {
         if (remoteNode != null) {
             rpcService.disconnectNode(remoteNode.getNodeId());
         }
-        super.channelInactive(ctx);
     }
 
     // ******************************************
@@ -78,6 +82,20 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
     // ******************************************
 
     @Override
+    public void messageReceived(ChannelHandlerContext ctx,
+                                MessageEvent e) throws Exception {
+        super.messageReceived(ctx, e);
+    }
+
+    @Override
+    @LogMessageDoc(level="ERROR",
+              message="[{id}->{id}] Attempted connection from unrecognized " +
+                      "floodlight node {id}; disconnecting",
+              explanation="A unknown node connected.  This can happen " +
+                      "transiently if new nodes join the cluster.",
+              recommendation="If the problem persists, verify your cluster" +
+                "configuration and that you don't have unauthorized agents " +
+                "in your network.")
     protected void handleHello(HelloMessage hello, Channel channel) {
         if (!hello.isSetNodeId()) {
             // this is a client connection.  Don't set this up as a node
@@ -102,7 +120,7 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
         header.setTransactionId(getTransactionId());
         srm.setHeader(header);
         SyncMessage bsm = new SyncMessage(MessageType.FULL_SYNC_REQUEST);
-        channel.writeAndFlush(bsm);
+        channel.write(bsm);
 
         // XXX - TODO - if last connection was longer ago than the tombstone
         // timeout, then we need to do a complete flush and reload of our
@@ -135,9 +153,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
 
             SyncMessage bsm = new SyncMessage(MessageType.GET_RESPONSE);
             bsm.setGetResponse(m);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.GET_REQUEST));
         }
     }
@@ -180,9 +198,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
 
             SyncMessage bsm = new SyncMessage(MessageType.PUT_RESPONSE);
             bsm.setPutResponse(m);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.PUT_REQUEST));
         }
     }
@@ -219,9 +237,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
             SyncMessage bsm =
                     new SyncMessage(MessageType.DELETE_RESPONSE);
             bsm.setDeleteResponse(m);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.DELETE_REQUEST));
         }
     }
@@ -261,9 +279,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
 
             updateCounter(SyncManager.counterReceivedValues,
                           request.getValuesSize());
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.SYNC_VALUE));
         }
     }
@@ -306,10 +324,10 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
                                           getRemoteNodeIdString(),
                                           srm.getKeysSize()});
             }
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
 
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(),
+            channel.write(getError(request.getHeader().getTransactionId(),
                                    e, MessageType.SYNC_OFFER));
         }
     }
@@ -348,7 +366,7 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
                                                          bsm));
             }
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.SYNC_REQUEST));
         }
     }
@@ -395,9 +413,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
             SyncMessage bsm =
                     new SyncMessage(MessageType.CURSOR_RESPONSE);
             bsm.setCursorResponse(m);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(),
+            channel.write(getError(request.getHeader().getTransactionId(),
                                    e, MessageType.CURSOR_REQUEST));
         }
     }
@@ -419,9 +437,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
             SyncMessage bsm =
                     new SyncMessage(MessageType.REGISTER_RESPONSE);
             bsm.setRegisterResponse(m);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.REGISTER_REQUEST));
         }
     }
@@ -504,9 +522,9 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
             SyncMessage bsm =
                     new SyncMessage(MessageType.CLUSTER_JOIN_RESPONSE);
             bsm.setClusterJoinResponse(cjrm);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } catch (Exception e) {
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), e,
+            channel.write(getError(request.getHeader().getTransactionId(), e,
                                    MessageType.CLUSTER_JOIN_REQUEST));
         }
     }
@@ -556,14 +574,14 @@ public class RPCChannelHandler extends AbstractRPCChannelHandler {
 
     @Override
     protected byte[] getSharedSecret() throws AuthException {
-    	 String path = syncManager.getClusterConfig().getKeyStorePath();
-         String pass = syncManager.getClusterConfig().getKeyStorePassword();
-         try {
-             return CryptoUtil.getSharedSecret(path, pass);
-         } catch (Exception e) {
-             throw new AuthException("Could not read challenge/response " +
-                     "shared secret from key store " + path, e);
-         }
+        String path = syncManager.getClusterConfig().getKeyStorePath();
+        String pass = syncManager.getClusterConfig().getKeyStorePassword();
+        try {
+            return CryptoUtil.getSharedSecret(path, pass);
+        } catch (Exception e) {
+            throw new AuthException("Could not read challenge/response " +
+                    "shared secret from key store " + path, e);
+        }
     }
 
     @Override

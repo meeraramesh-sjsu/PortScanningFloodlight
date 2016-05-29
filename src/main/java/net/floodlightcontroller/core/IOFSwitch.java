@@ -35,12 +35,10 @@ import org.projectfloodlight.openflow.protocol.OFStatsRequest;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.OFPort;
 import org.projectfloodlight.openflow.types.TableId;
-import org.projectfloodlight.openflow.types.U64;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 
-import net.floodlightcontroller.core.internal.OFConnection;
 import net.floodlightcontroller.core.internal.TableFeatures;
 import net.floodlightcontroller.core.web.serializers.IOFSwitchSerializer;
 
@@ -118,13 +116,7 @@ public interface IOFSwitch extends IOFMessageWriter {
 
     Set<OFCapabilities> getCapabilities();
 
-    /**
-     * Get the specific TableIds according to the ofp_table_features.
-     * Not all switches have sequential TableIds, so this will give the
-     * specific TableIds used by the switch.
-     * @return
-     */
-    Collection<TableId> getTables();
+    short getTables();
 
     /**
      * @return a copy of the description statistics for this switch
@@ -291,6 +283,13 @@ public interface IOFSwitch extends IOFMessageWriter {
     OFFactory getOFFactory();
 
     /**
+     * Flush all flows queued for this switch on all connections that were written by the current thread.
+     *
+     *
+     */
+    void flush();
+
+    /**
      * Gets the OF connections for this switch instance
      * @return Collection of IOFConnection
      */
@@ -300,17 +299,15 @@ public interface IOFSwitch extends IOFMessageWriter {
      * Writes a message to the connection specified by the logical OFMessage category
      * @param m an OF Message
      * @param category the category of the OF Message to be sent
-     * @return true upon success; false upon failure
      */
-    boolean write(OFMessage m, LogicalOFMessageCategory category);
+    void write(OFMessage m, LogicalOFMessageCategory category);
 
     /**
      * Writes a message list to the connection specified by the logical OFMessage category
      * @param msglist an OF Message list
      * @param category the category of the OF Message list to be sent
-     * @return list of failed messages, if any; success denoted by empty list
      */
-    Iterable<OFMessage> write(Iterable<OFMessage> msglist, LogicalOFMessageCategory category);
+    void write(Iterable<OFMessage> msglist, LogicalOFMessageCategory category);
 
     /**
      * Get a connection specified by the logical OFMessage category
@@ -353,16 +350,5 @@ public interface IOFSwitch extends IOFMessageWriter {
      * @return The table features or null if no features are known for the table requested.
      */
     public TableFeatures getTableFeatures(TableId table);
-
-    /**
-     * Get the number of tables as returned by the ofp_features_reply.
-     * @return
-     */
-	short getNumTables();
- 
-	/**
-	 * Get the one-way latency from the switch to the controller.
-	 * @return milliseconds
-	 */
-	public U64 getLatency();
+    
 }

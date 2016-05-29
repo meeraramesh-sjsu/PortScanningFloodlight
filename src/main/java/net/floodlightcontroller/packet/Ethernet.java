@@ -307,9 +307,7 @@ public class Ethernet extends BasePacket {
                 this.payload = new Data(data);
             }
         } else {
-            byte[] buf = new byte[bb.remaining()];
-            bb.get(buf);
-            this.payload = new Data(buf);
+            this.payload = new Data(data);
         }
         this.payload.setParent(this);
         return this;
@@ -478,17 +476,6 @@ public class Ethernet extends BasePacket {
             sb.append("\nnw_proto: ");
             sb.append(p.getProtocol());
         }
-        else if (pkt instanceof IPv6) {
-        	IPv6 p = (IPv6) pkt;
-        	sb.append("\nnw_src: ");
-            sb.append(p.getSourceAddress().toString());
-            sb.append("\nnw_dst: ");
-            sb.append(p.getDestinationAddress().toString());
-            sb.append("\nnw_tclass: ");
-            sb.append(p.getTrafficClass());
-            sb.append("\nnw_proto: ");
-            sb.append(p.getNextHeader().toString());
-        }
         else if (pkt instanceof DHCP) {
             sb.append("\ndhcp packet");
         }
@@ -501,8 +488,9 @@ public class Ethernet extends BasePacket {
         else if (pkt instanceof BPDU) {
             sb.append("\nbpdu packet");
         }
-        else sb.append("\nunknown packet");
+        else sb.append("\nunknwon packet");
 
         return sb.toString();
     }
+
 }

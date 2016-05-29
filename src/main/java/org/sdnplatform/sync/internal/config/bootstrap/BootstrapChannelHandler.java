@@ -1,7 +1,8 @@
 package org.sdnplatform.sync.internal.config.bootstrap;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
 import org.sdnplatform.sync.IStoreClient;
 import org.sdnplatform.sync.Versioned;
 import org.sdnplatform.sync.error.AuthException;
@@ -29,10 +30,10 @@ public class BootstrapChannelHandler extends AbstractRPCChannelHandler {
     protected static final Logger logger =
             LoggerFactory.getLogger(BootstrapChannelHandler.class);
 
-    private BootstrapClient bootstrap;
+    private Bootstrap bootstrap;
     private Short remoteNodeId;
     
-    public BootstrapChannelHandler(BootstrapClient bootstrap) {
+    public BootstrapChannelHandler(Bootstrap bootstrap) {
         super();
         this.bootstrap = bootstrap;
     }
@@ -42,9 +43,9 @@ public class BootstrapChannelHandler extends AbstractRPCChannelHandler {
     // ****************************
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        bootstrap.getChannelGroup().add(ctx.channel());
-        super.channelActive(ctx);
+    public void channelOpen(ChannelHandlerContext ctx, 
+                            ChannelStateEvent e) throws Exception {
+        bootstrap.cg.add(ctx.getChannel());
     }
 
     // ******************************************
@@ -72,7 +73,7 @@ public class BootstrapChannelHandler extends AbstractRPCChannelHandler {
         SyncMessage bsm = 
                 new SyncMessage(MessageType.CLUSTER_JOIN_REQUEST);
         bsm.setClusterJoinRequest(cjrm);
-        channel.writeAndFlush(bsm);
+        channel.write(bsm);
     }
 
     @Override
@@ -106,7 +107,7 @@ public class BootstrapChannelHandler extends AbstractRPCChannelHandler {
             bootstrap.succeeded = true;
         } catch (Exception e) {
             logger.error("Error processing cluster join response", e);
-            channel.writeAndFlush(getError(response.getHeader().getTransactionId(), e, 
+            channel.write(getError(response.getHeader().getTransactionId(), e, 
                                    MessageType.CLUSTER_JOIN_RESPONSE));
         }
         channel.disconnect();

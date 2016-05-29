@@ -1,3 +1,4 @@
+net.floodlightcontroller.portscanner.PortScanner_TRW
 net.floodlightcontroller.core.internal.FloodlightProvider
 net.floodlightcontroller.storage.memory.MemoryStorageSource
 net.floodlightcontroller.flowcache.FlowReconcileManager
@@ -16,7 +17,6 @@ net.floodlightcontroller.threadpool.ThreadPool
 net.floodlightcontroller.core.internal.ShutdownServiceImpl
 org.sdnplatform.sync.internal.SyncManager
 org.sdnplatform.sync.internal.SyncTorture
-net.floodlightcontroller.simpleft.FT
 net.floodlightcontroller.staticflowentry.StaticFlowEntryPusher
 net.floodlightcontroller.testmodule.TestModule
 net.floodlightcontroller.topology.TopologyManager
@@ -28,4 +28,3 @@ net.floodlightcontroller.firewall.Firewall
 net.floodlightcontroller.accesscontrollist.ACL
 net.floodlightcontroller.dhcpserver.DHCPServer
 net.floodlightcontroller.learningswitch.LearningSwitch
-net.floodlightcontroller.statistics.StatisticsCollector

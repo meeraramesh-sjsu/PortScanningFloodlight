@@ -47,13 +47,11 @@ import org.projectfloodlight.openflow.protocol.OFPacketOut;
 import org.projectfloodlight.openflow.protocol.OFVersion;
 import org.projectfloodlight.openflow.types.EthType;
 import org.projectfloodlight.openflow.types.IPv4Address;
-import org.projectfloodlight.openflow.types.IPv6Address;
 import org.projectfloodlight.openflow.types.IpProtocol;
 import org.projectfloodlight.openflow.types.MacAddress;
 import org.projectfloodlight.openflow.types.OFBufferId;
 import org.projectfloodlight.openflow.types.OFPort;
 import org.projectfloodlight.openflow.types.U64;
-import org.projectfloodlight.openflow.types.VlanVid;
 import org.projectfloodlight.openflow.protocol.OFPacketInReason;
 import org.projectfloodlight.openflow.protocol.action.OFAction;
 import org.projectfloodlight.openflow.protocol.match.MatchField;
@@ -446,7 +444,10 @@ public class LoadBalancerTest extends FloodlightTestCase {
 		expect(sw1.getId()).andReturn(DatapathId.of(1L)).anyTimes();
 		expect(sw1.hasAttribute(IOFSwitch.PROP_SUPPORTS_OFPP_TABLE)).andReturn(true).anyTimes();
 		expect(sw1.getOFFactory()).andReturn(factory).anyTimes();
-		expect(sw1.write(capture(wc1))).andReturn(true).anyTimes();
+		sw1.write(capture(wc1));
+		expectLastCall().anyTimes();
+		sw1.flush();
+		expectLastCall().anyTimes();
 		
 		replay(sw1);
 		sfp.switchAdded(DatapathId.of(1L));
@@ -468,7 +469,7 @@ public class LoadBalancerTest extends FloodlightTestCase {
 		// Build topology
 		reset(topology);
 		expect(topology.isIncomingBroadcastAllowed(DatapathId.of(anyLong()), OFPort.of(anyShort()))).andReturn(true).anyTimes();
-		expect(topology.getOpenflowDomainId(DatapathId.of(1L))).andReturn(DatapathId.of(1L)).anyTimes();
+		expect(topology.getL2DomainId(DatapathId.of(1L))).andReturn(DatapathId.of(1L)).anyTimes();
 		expect(topology.isAttachmentPointPort(DatapathId.of(1L), OFPort.of(1))).andReturn(true).anyTimes();
 		expect(topology.isAttachmentPointPort(DatapathId.of(1L), OFPort.of(2))).andReturn(true).anyTimes();
 		expect(topology.isAttachmentPointPort(DatapathId.of(1L), OFPort.of(3))).andReturn(true).anyTimes();
@@ -620,18 +621,18 @@ public class LoadBalancerTest extends FloodlightTestCase {
 		MacAddress dataLayerDest2 = MacAddress.of("00:00:00:00:00:04");
 		IPv4Address networkDest2 = IPv4Address.of("10.0.0.4");
 
-		deviceManager.learnEntity(dataLayerSource1,
-				VlanVid.ZERO, networkSource1, IPv6Address.NONE,
-				DatapathId.of(1), OFPort.of(1));
-		deviceManager.learnEntity(dataLayerSource2,
-				VlanVid.ZERO, networkSource2, IPv6Address.NONE,
-				DatapathId.of(1), OFPort.of(2));
-		deviceManager.learnEntity(dataLayerDest1,
-				VlanVid.ZERO, networkDest1, IPv6Address.NONE,
-				DatapathId.of(1), OFPort.of(3));
-		deviceManager.learnEntity(dataLayerDest2,
-				VlanVid.ZERO, networkDest2, IPv6Address.NONE,
-				DatapathId.of(1), OFPort.of(4));
+		deviceManager.learnEntity(dataLayerSource1.getLong(),
+				null, networkSource1.getInt(),
+				1L, 1);
+		deviceManager.learnEntity(dataLayerSource2.getLong(),
+				null, networkSource2.getInt(),
+				1L, 2);
+		deviceManager.learnEntity(dataLayerDest1.getLong(),
+				null, networkDest1.getInt(),
+				1L, 3);
+		deviceManager.learnEntity(dataLayerDest2.getLong(),
+				null, networkDest2.getInt(),
+				1L, 4);
 
 		// in bound #1
 		Route route1 = new Route(DatapathId.of(1L), DatapathId.of(1L));

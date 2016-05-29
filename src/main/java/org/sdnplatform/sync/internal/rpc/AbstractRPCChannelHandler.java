@@ -11,12 +11,19 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.xml.bind.DatatypeConverter;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.handler.timeout.IdleStateEvent;
-import io.netty.handler.timeout.ReadTimeoutException;
+import net.floodlightcontroller.core.annotations.LogMessageCategory;
+import net.floodlightcontroller.core.annotations.LogMessageDoc;
+import net.floodlightcontroller.core.annotations.LogMessageDocs;
 
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
+import org.jboss.netty.channel.Channels;
+import org.jboss.netty.channel.ExceptionEvent;
+import org.jboss.netty.channel.MessageEvent;
+import org.jboss.netty.handler.timeout.IdleStateAwareChannelHandler;
+import org.jboss.netty.handler.timeout.IdleStateEvent;
+import org.jboss.netty.handler.timeout.ReadTimeoutException;
 import org.sdnplatform.sync.error.AuthException;
 import org.sdnplatform.sync.error.HandshakeTimeoutException;
 import org.sdnplatform.sync.error.SyncException;
@@ -58,7 +65,9 @@ import org.slf4j.LoggerFactory;
  * a {@link SyncMessage} which will provide specific type information. 
  * @author readams
  */
-public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAdapter {
+@LogMessageCategory("State Synchronization")
+public abstract class AbstractRPCChannelHandler 
+    extends IdleStateAwareChannelHandler {
     protected static final Logger logger =
             LoggerFactory.getLogger(AbstractRPCChannelHandler.class);
     protected String currentChallenge;
@@ -80,7 +89,8 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
     // ****************************
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+    public void channelConnected(ChannelHandlerContext ctx,
+                                 ChannelStateEvent e) throws Exception {
         channelState = ChannelState.CONNECTED;
 
         HelloMessage m = new HelloMessage();
@@ -105,18 +115,12 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
         }
         SyncMessage bsm = new SyncMessage(MessageType.HELLO);
         bsm.setHello(m);
-        ctx.channel().writeAndFlush(bsm);
-    }
-    
-    @Override
-    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-    	if (evt instanceof IdleStateEvent) {
-    		channelIdle(ctx, (IdleStateEvent) evt);
-    	}
-    	super.userEventTriggered(ctx, evt);
+        ctx.getChannel().write(bsm);
     }
 
-    public void channelIdle(ChannelHandlerContext ctx, IdleStateEvent e) throws Exception {
+    @Override
+    public void channelIdle(ChannelHandlerContext ctx,
+                            IdleStateEvent e) throws Exception {
         // send an echo request
         EchoRequestMessage m = new EchoRequestMessage();
         AsyncMessageHeader header = new AsyncMessageHeader();
@@ -124,50 +128,79 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
         m.setHeader(header);
         SyncMessage bsm = new SyncMessage(MessageType.ECHO_REQUEST);
         bsm.setEchoRequest(m);
-        ctx.channel().writeAndFlush(bsm);
+        ctx.getChannel().write(bsm);
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        if (cause instanceof ReadTimeoutException) {
+    @LogMessageDocs({
+        @LogMessageDoc(level="ERROR",
+                message="[{id}->{id}] Disconnecting client due to read timeout",
+                explanation="The connected client has failed to send any " +
+                            "messages or respond to echo requests",
+                recommendation=LogMessageDoc.CHECK_CONTROLLER),
+        @LogMessageDoc(level="ERROR",
+                message="[{id}->{id}] Disconnecting RPC node due to " +
+                    "handshake timeout",
+                explanation="The remote node did not complete the handshake",
+                recommendation=LogMessageDoc.CHECK_CONTROLLER),
+                @LogMessageDoc(level="ERROR",
+                message="[{id}->{id}] IOException: {message}",
+                explanation="There was an error communicating with the " + 
+                            "remote client",
+                recommendation=LogMessageDoc.GENERIC_ACTION),
+                @LogMessageDoc(level="ERROR",
+                message="[{id}->{id}] ConnectException: {message} {error}",
+                explanation="There was an error connecting to the " + 
+                            "remote node",
+                recommendation=LogMessageDoc.GENERIC_ACTION),
+        @LogMessageDoc(level="ERROR",
+                message="[{}->{}] An error occurred on RPC channel",
+                explanation="An error occurred processing the message",
+                recommendation=LogMessageDoc.GENERIC_ACTION),
+    })
+    public void exceptionCaught(ChannelHandlerContext ctx,
+                                ExceptionEvent e) throws Exception {
+        if (e.getCause() instanceof ReadTimeoutException) {
             // read timeout
             logger.error("[{}->{}] Disconnecting RPC node due to read timeout",
                          getLocalNodeIdString(), getRemoteNodeIdString());
-            ctx.channel().close();
-        } else if (cause instanceof HandshakeTimeoutException) {
+            ctx.getChannel().close();
+        } else if (e.getCause() instanceof HandshakeTimeoutException) {
             // read timeout
             logger.error("[{}->{}] Disconnecting RPC node due to " +
                     "handshake timeout",
                     getLocalNodeIdString(), getRemoteNodeIdString());
-            ctx.channel().close();
-        } else if (cause instanceof ConnectException ||
-        		cause instanceof IOException) {
+            ctx.getChannel().close();
+        } else if (e.getCause() instanceof ConnectException ||
+                   e.getCause() instanceof IOException) {
             logger.debug("[{}->{}] {}: {}", 
                          new Object[] {getLocalNodeIdString(),
                                        getRemoteNodeIdString(), 
-                                       cause.getClass().getName(),
-                                       cause.getMessage()});
+                                       e.getCause().getClass().getName(),
+                                       e.getCause().getMessage()});
         } else {
             logger.error("[{}->{}] An error occurred on RPC channel",
                          new Object[]{getLocalNodeIdString(), 
                                       getRemoteNodeIdString(),
-                                      cause});
-            ctx.channel().close();
+                                      e.getCause()});
+            ctx.getChannel().close();
         }
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object message) throws Exception {
+    public void messageReceived(ChannelHandlerContext ctx,
+                                MessageEvent e) throws Exception {
+        Object message = e.getMessage();
         if (message instanceof SyncMessage) {
-            handleSyncMessage((SyncMessage)message, ctx.channel());
+            handleSyncMessage((SyncMessage)message, ctx.getChannel());
         } else if (message instanceof List) {
             for (Object i : (List<?>)message) {
                 if (i instanceof SyncMessage) {
                     try {
                         handleSyncMessage((SyncMessage)i,
-                                             ctx.channel());
+                                             ctx.getChannel());
                     } catch (Exception ex) {
-                        ctx.fireExceptionCaught(ex);
+                        Channels.fireExceptionCaught(ctx, ex);
                     }
                 }
             }
@@ -186,6 +219,10 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
      * @param ctx the context
      * @param message the message object
      */
+    @LogMessageDoc(level="WARN",
+                   message="[{id}->{id}] Unhandled message: {message type}",
+                   explanation="An unrecognized event occurred",
+                   recommendation=LogMessageDoc.REPORT_CONTROLLER_BUG)
     protected void handleUnknownMessage(ChannelHandlerContext ctx, 
                                         Object message) {
         logger.warn("[{}->{}] Unhandled message: {}", 
@@ -306,6 +343,11 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
         
     }
 
+    @LogMessageDoc(level="WARN",
+                   message="Failed to authenticate connection from {remote}: {message}",
+                   explanation="Challenge/Response authentication failed",
+                   recommendation="Check the included error message, and " + 
+                           "verify the shared secret is correctly-configured")
     protected void handshake(HelloMessage request, Channel channel) {
         try {
             switch (getAuthScheme()) {
@@ -321,7 +363,7 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
                         new Object[]{getLocalNodeIdString(), 
                                      getRemoteNodeIdString(), 
                                      e.getMessage()});
-            channel.writeAndFlush(getError(request.getHeader().getTransactionId(), 
+            channel.write(getError(request.getHeader().getTransactionId(), 
                                    e, MessageType.HELLO));
             channel.close();
         }
@@ -335,7 +377,6 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
             throw new AuthException("No authentication data in " + 
                     "handshake message");
         }
-        
         if (cr.isSetResponse()) {
             authenticateResponse(currentChallenge, cr.getResponse());
             currentChallenge = null;
@@ -349,11 +390,12 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
             header.setTransactionId(getTransactionId());
             m.setHeader(header);
             SyncMessage bsm = new SyncMessage(MessageType.HELLO);
-            bsm.setHello(m); 
+            bsm.setHello(m);
+
             AuthChallengeResponse reply = new AuthChallengeResponse();
             reply.setResponse(generateResponse(cr.getChallenge()));
             m.setAuthChallengeResponse(reply);
-            channel.writeAndFlush(bsm);
+            channel.write(bsm);
         } else {
             throw new AuthException("No authentication data in " + 
                     "handshake message");
@@ -380,7 +422,7 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
         m.setHeader(header);
         SyncMessage bsm = new SyncMessage(MessageType.ECHO_REPLY);
         bsm.setEchoReply(m);
-        channel.writeAndFlush(bsm);
+        channel.write(bsm);
     }
 
     protected void handleGetRequest(GetRequestMessage request,
@@ -485,6 +527,11 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
                           MessageType.CLUSTER_JOIN_RESPONSE, channel);
     }
 
+    @LogMessageDoc(level="ERROR",
+                   message="[{id}->{id}] Error for message {id} ({type}): " + 
+                           "{message} {error code}",
+                   explanation="Remote client sent an error",
+                   recommendation=LogMessageDoc.GENERIC_ACTION)
     protected void handleError(ErrorMessage error, Channel channel) {
         logger.error("[{}->{}] Error for message {} ({}): {} ({})", 
                      new Object[]{getLocalNodeIdString(), 
@@ -507,6 +554,11 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
      * @param type the type of the message that generated the error
      * @return the {@link SyncError} message
      */
+    @LogMessageDoc(level="ERROR",
+                   message="Unexpected error processing message {} ({})",
+                   explanation="An error occurred while processing an " + 
+                               "RPC message",
+                   recommendation=LogMessageDoc.GENERIC_ACTION)
     protected SyncMessage getError(int transactionId, Exception error, 
                                    MessageType type) {
         int ec = SyncException.ErrorType.GENERIC.getValue();
@@ -538,6 +590,11 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
      * @param type The type of the message that generated the error
      * @param channel the channel to write the error
      */
+    @LogMessageDoc(level="WARN",
+                    message="[{id}->{id}] Received unexpected message: {type}",
+                    explanation="A inappriopriate message was sent by the remote" +
+                            "client",
+                    recommendation=LogMessageDoc.REPORT_CONTROLLER_BUG)
     protected void unexpectedMessage(int transactionId,
                                      MessageType type,
                                      Channel channel) {
@@ -546,7 +603,7 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
                     new Object[]{getLocalNodeIdString(), 
                                  getRemoteNodeIdString(),
                                  message});
-        channel.writeAndFlush(getError(transactionId, 
+        channel.write(getError(transactionId, 
                                new SyncException(message), type));
     }
     
@@ -622,7 +679,7 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
     }
     
     private String generateResponse(String challenge) throws AuthException {
-    	byte[] secretBytes = getSharedSecret();
+        byte[] secretBytes = getSharedSecret();
         if (secretBytes == null) return null;
 
         SecretKeySpec signingKey = 
@@ -631,9 +688,9 @@ public abstract class AbstractRPCChannelHandler extends ChannelInboundHandlerAda
         try {
             mac = Mac.getInstance("HmacSHA1");
         } catch (NoSuchAlgorithmException e) {
-            throw new AuthException("Could not initialize HmacSHA1 algorithm", e);
+            throw new AuthException("Could not initialize HmacSHA1 algorithm", 
+                                    e);
         }
-        
         try {
             mac.init(signingKey);
             byte[] output = 

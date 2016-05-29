@@ -18,16 +18,18 @@ package org.sdnplatform.sync.internal.remote;
 
 import java.util.concurrent.TimeUnit;
 
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.Timeout;
-import io.netty.util.Timer;
-import io.netty.util.TimerTask;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
+import org.jboss.netty.channel.SimpleChannelUpstreamHandler;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.Timer;
+import org.jboss.netty.util.TimerTask;
 
 /**
  * Trigger a timeout if the bootstrap process stalls
  */
-public class RSHandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
+public class RSHandshakeTimeoutHandler 
+    extends SimpleChannelUpstreamHandler {
     
     final Timer timer;
     final long timeoutNanos;
@@ -44,23 +46,22 @@ public class RSHandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
     }
     
     @Override
-    public void channelActive(ChannelHandlerContext ctx)
+    public void channelOpen(ChannelHandlerContext ctx, ChannelStateEvent e)
             throws Exception {
         if (timeoutNanos > 0) {
             timeout = timer.newTimeout(new HandshakeTimeoutTask(ctx), 
                                        timeoutNanos, TimeUnit.NANOSECONDS);
         }
-        super.channelActive(ctx);
+        ctx.sendUpstream(e);
     }
     
     @Override
-    public void channelInactive(ChannelHandlerContext ctx)
+    public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e)
             throws Exception {
         if (timeout != null) {
             timeout.cancel();
             timeout = null;
         }
-        super.channelInactive(ctx);
     }
     
     private final class HandshakeTimeoutTask implements TimerTask {
@@ -77,11 +78,11 @@ public class RSHandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            if (!ctx.channel().isOpen()) {
+            if (!ctx.getChannel().isOpen()) {
                 return;
             }
             if (channelHandler.syncManager.ready == false)
-                ctx.channel().disconnect();
+                ctx.getChannel().disconnect();
         }
     }
 }

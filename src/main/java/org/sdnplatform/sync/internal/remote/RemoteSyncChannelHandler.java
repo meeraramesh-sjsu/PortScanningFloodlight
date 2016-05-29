@@ -2,8 +2,9 @@ package org.sdnplatform.sync.internal.remote;
 
 import java.util.List;
 
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
 import org.sdnplatform.sync.Versioned;
 import org.sdnplatform.sync.error.AuthException;
 import org.sdnplatform.sync.error.SyncException;
@@ -41,17 +42,17 @@ public class RemoteSyncChannelHandler extends AbstractRPCChannelHandler {
     // ****************************
     
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        syncManager.cg.add(ctx.channel());
-        super.channelActive(ctx);
+    public void channelOpen(ChannelHandlerContext ctx, 
+                            ChannelStateEvent e) throws Exception {
+        syncManager.cg.add(ctx.getChannel());
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    public void channelDisconnected(ChannelHandlerContext ctx,
+                                    ChannelStateEvent e) throws Exception {
         this.syncManager.channel = null;
         syncManager.ready = false;
         syncManager.channelDisconnected(null);
-        super.channelInactive(ctx);
     }
 
     // ******************************************

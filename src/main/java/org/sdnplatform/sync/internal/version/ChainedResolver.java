@@ -32,8 +32,7 @@ public class ChainedResolver<T> implements IInconsistencyResolver<T> {
 
     private List<IInconsistencyResolver<T>> resolvers;
 
-    @SafeVarargs
-	public ChainedResolver(IInconsistencyResolver<T>... resolvers) {
+    public ChainedResolver(IInconsistencyResolver<T>... resolvers) {
         this.resolvers = new ArrayList<IInconsistencyResolver<T>>(resolvers.length);
         for(IInconsistencyResolver<T> resolver: resolvers)
             this.resolvers.add(resolver);

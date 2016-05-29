@@ -18,6 +18,7 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import net.floodlightcontroller.core.IOFSwitchBackend;
+import net.floodlightcontroller.core.OFConnection;
 import net.floodlightcontroller.core.SwitchDescription;
 import net.floodlightcontroller.core.internal.OFSwitchHandshakeHandler.WaitAppHandshakeState;
 import net.floodlightcontroller.core.internal.OFSwitchHandshakeHandler.WaitTableFeaturesReplyState;
@@ -131,8 +132,7 @@ public class OFSwitchHandshakeHandlerVer13Test extends OFSwitchHandlerTestBase {
         verify(sw, switchManager);
     }
     
-    @SuppressWarnings("unchecked")
-	public void handleTableFeatures(boolean subHandShakeComplete) throws Exception {
+    public void handleTableFeatures(boolean subHandShakeComplete) throws Exception {
     	// build the table features stats reply
     	OFTableFeaturesStatsReply tf = createTableFeaturesStatsReply();
     	

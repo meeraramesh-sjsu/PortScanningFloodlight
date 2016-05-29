@@ -171,7 +171,7 @@ public class LearningSwitchTest extends FloodlightTestCase {
         this.learningSwitch.startUp(fmc);
                 
         this.mockFloodlightProvider.addOFMessageListener(OFType.PACKET_IN, learningSwitch);
-        this.mockFloodlightProvider.addCompletionListener(learningSwitch);
+
     }
 
     @Test
@@ -190,7 +190,8 @@ public class LearningSwitchTest extends FloodlightTestCase {
         IOFSwitch mockSwitch = createMock(IOFSwitch.class);
         expect(mockSwitch.getId()).andReturn(DatapathId.of("00:11:22:33:44:55:66:77")).anyTimes();
         expect(mockSwitch.getOFFactory()).andReturn(factory).anyTimes();
-        expect(mockSwitch.write(EasyMock.capture(wc1))).andReturn(true).once(); // expect po
+        mockSwitch.write(EasyMock.capture(wc1)); // expect po
+        EasyMock.expectLastCall().once();
 
         // Start recording the replay on the mocks
         replay(mockSwitch);
@@ -268,9 +269,12 @@ public class LearningSwitchTest extends FloodlightTestCase {
         expect(mockSwitch.getBuffers()).andReturn((long)100).anyTimes();
         expect(mockSwitch.getOFFactory()).andReturn(factory).anyTimes();
         
-        expect(mockSwitch.write(EasyMock.capture(wc1))).andReturn(true).once(); // expect packetOut
-        expect(mockSwitch.write(EasyMock.capture(wc2))).andReturn(true).once(); // expect fm1
-        expect(mockSwitch.write(EasyMock.capture(wc3))).andReturn(true).once(); // expect fm2
+        mockSwitch.write(EasyMock.capture(wc1)); // expect packetOut
+        EasyMock.expectLastCall().once();
+        mockSwitch.write(EasyMock.capture(wc2)); // expect fm1
+        EasyMock.expectLastCall().once();
+        mockSwitch.write(EasyMock.capture(wc3)); // expect fm2
+        EasyMock.expectLastCall().once();
 
         // Start recording the replay on the mocks
         replay(mockSwitch);

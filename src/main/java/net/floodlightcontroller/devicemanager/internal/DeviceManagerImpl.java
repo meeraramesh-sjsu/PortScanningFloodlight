@@ -39,8 +39,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nonnull;
-
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.HAListenerTypeMarker;
 import net.floodlightcontroller.core.IFloodlightProviderService;
@@ -78,7 +76,6 @@ import net.floodlightcontroller.packet.DHCP;
 import net.floodlightcontroller.packet.DHCPOption;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
-import net.floodlightcontroller.packet.IPv6;
 import net.floodlightcontroller.packet.UDP;
 import net.floodlightcontroller.packet.DHCP.DHCPOptionCode;
 import net.floodlightcontroller.restserver.IRestApiService;
@@ -95,7 +92,6 @@ import org.projectfloodlight.openflow.protocol.OFPacketIn;
 import org.projectfloodlight.openflow.protocol.OFVersion;
 import org.projectfloodlight.openflow.types.DatapathId;
 import org.projectfloodlight.openflow.types.IPv4Address;
-import org.projectfloodlight.openflow.types.IPv6Address;
 import org.projectfloodlight.openflow.types.MacAddress;
 import org.projectfloodlight.openflow.types.OFPort;
 import org.projectfloodlight.openflow.types.VlanVid;
@@ -244,7 +240,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	 * The entity classifier currently in use
 	 */
 	protected IEntityClassifierService entityClassifier;
-	
+
 	/**
 	 * Used to cache state about specific entity classes
 	 */
@@ -353,16 +349,17 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 
 			DatapathId oldSw = oldAP.getSw();
 			OFPort oldPort = oldAP.getPort();
-			DatapathId oldDomain = topology.getOpenflowDomainId(oldSw);
+			DatapathId oldDomain = topology.getL2DomainId(oldSw);
 			boolean oldBD = topology.isBroadcastDomainPort(oldSw, oldPort);
 
 			DatapathId newSw = newAP.getSw();
 			OFPort newPort = newAP.getPort();
-			DatapathId newDomain = topology.getOpenflowDomainId(newSw);
+			DatapathId newDomain = topology.getL2DomainId(newSw);
 			boolean newBD = topology.isBroadcastDomainPort(newSw, newPort);
 
 			if (oldDomain.getLong() < newDomain.getLong()) return -1;
 			else if (oldDomain.getLong() > newDomain.getLong()) return 1;
+
 
 			// Give preference to LOCAL always
 			if (oldPort != OFPort.LOCAL &&
@@ -376,7 +373,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			// We expect that the last seen of the new AP is higher than
 			// old AP, if it is not, just reverse and send the negative
 			// of the result.
-			if (oldAP.getLastSeen().after(newAP.getLastSeen())) //TODO should this be lastSeen? @Ryan did change this from activeSince
+			if (oldAP.getActiveSince().after(newAP.getActiveSince()))
 				return -compare(newAP, oldAP);
 
 			long activeOffset = 0;
@@ -443,37 +440,16 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	}
 
 	@Override
-	public IDevice findDevice(@Nonnull MacAddress macAddress, VlanVid vlan,
-			@Nonnull IPv4Address ipv4Address, @Nonnull IPv6Address ipv6Address,
-			@Nonnull DatapathId switchDPID, @Nonnull OFPort switchPort)
+	public IDevice findDevice(MacAddress macAddress, VlanVid vlan,
+			IPv4Address ipv4Address, DatapathId switchDPID,
+			OFPort switchPort)
 					throws IllegalArgumentException {
-		if (macAddress == null) {
-    		throw new IllegalArgumentException("MAC address cannot be null. Try MacAddress.NONE if intention is 'no MAC'");
-    	}
-    	if (ipv4Address == null) {
-    		throw new IllegalArgumentException("IPv4 address cannot be null. Try IPv4Address.NONE if intention is 'no IPv4'");
-    	}
-    	if (ipv6Address == null) {
-    		throw new IllegalArgumentException("IPv6 address cannot be null. Try IPv6Address.NONE if intention is 'no IPv6'");
-    	}
-    	if (vlan == null) {
-    		throw new IllegalArgumentException("VLAN cannot be null. Try VlanVid.ZERO if intention is 'no VLAN / untagged'");
-    	}
-    	if (switchDPID == null) {
-    		throw new IllegalArgumentException("Switch DPID cannot be null. Try DatapathId.NONE if intention is 'no DPID'");
-    	}
-    	if (switchPort == null) {
-    		throw new IllegalArgumentException("Switch port cannot be null. Try OFPort.ZERO if intention is 'no port'");
-    	}
-		
-		Entity e = new Entity(macAddress, vlan, 
-				ipv4Address, ipv6Address, 
-				switchDPID, switchPort, Entity.NO_DATE);
-		
-		/*
-		 * allKeyFieldsPresent() will check if the entity key fields (e.g. MAC and VLAN)
-		 * have non-"zero" values i.e. are not set to e.g. MacAddress.NONE and VlanVid.ZERO
-		 */
+		if (vlan != null && vlan.getVlan() <= 0)
+			vlan = null;
+		if (ipv4Address != null && ipv4Address.getInt() == 0)
+			ipv4Address = null;
+		Entity e = new Entity(macAddress, vlan, ipv4Address, switchDPID,
+				switchPort, null);
 		if (!allKeyFieldsPresent(e, entityClassifier.getKeyFields())) {
 			throw new IllegalArgumentException("Not all key fields specified."
 					+ " Required fields: " + entityClassifier.getKeyFields());
@@ -482,27 +458,17 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	}
 
 	@Override
-	public IDevice findClassDevice(@Nonnull IEntityClass entityClass, @Nonnull MacAddress macAddress,
-			@Nonnull VlanVid vlan, @Nonnull IPv4Address ipv4Address, @Nonnull IPv6Address ipv6Address)
+	public IDevice findClassDevice(IEntityClass entityClass, MacAddress macAddress,
+			VlanVid vlan, IPv4Address ipv4Address)
 					throws IllegalArgumentException {
-		if (entityClass == null) {
-    		throw new IllegalArgumentException("Entity class cannot be null.");
-    	}
-		if (macAddress == null) {
-    		throw new IllegalArgumentException("MAC address cannot be null. Try MacAddress.NONE if intention is 'no MAC'");
-    	}
-    	if (ipv4Address == null) {
-    		throw new IllegalArgumentException("IPv4 address cannot be null. Try IPv4Address.NONE if intention is 'no IPv4'");
-    	}
-    	if (ipv6Address == null) {
-    		throw new IllegalArgumentException("IPv6 address cannot be null. Try IPv6Address.NONE if intention is 'no IPv6'");
-    	}
-    	if (vlan == null) {
-    		throw new IllegalArgumentException("VLAN cannot be null. Try VlanVid.ZERO if intention is 'no VLAN / untagged'");
-    	}
-    	
-		Entity e = new Entity(macAddress, vlan, ipv4Address, ipv6Address, DatapathId.NONE, OFPort.ZERO, Entity.NO_DATE);
-		if (!allKeyFieldsPresent(e, entityClass.getKeyFields())) {
+		if (vlan != null && vlan.getVlan() <= 0)
+			vlan = null;
+		if (ipv4Address != null && ipv4Address.getInt() == 0)
+			ipv4Address = null;
+		Entity e = new Entity(macAddress, vlan, ipv4Address,
+				null, null, null);
+		if (entityClass == null ||
+				!allKeyFieldsPresent(e, entityClass.getKeyFields())) {
 			throw new IllegalArgumentException("Not all key fields and/or "
 					+ " no source device specified. Required fields: " +
 					entityClassifier.getKeyFields());
@@ -527,33 +493,15 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	}
 
 	@Override
-	public Iterator<? extends IDevice> queryDevices(@Nonnull MacAddress macAddress,
+	public Iterator<? extends IDevice> queryDevices(MacAddress macAddress,
 			VlanVid vlan,
-			@Nonnull IPv4Address ipv4Address,
-			@Nonnull IPv6Address ipv6Address,
-			@Nonnull DatapathId switchDPID,
-			@Nonnull OFPort switchPort) {
-		if (macAddress == null) {
-    		throw new IllegalArgumentException("MAC address cannot be null. Try MacAddress.NONE if intention is 'no MAC'");
-    	}
-    	if (ipv4Address == null) {
-    		throw new IllegalArgumentException("IPv4 address cannot be null. Try IPv4Address.NONE if intention is 'no IPv4'");
-    	}
-    	if (ipv6Address == null) {
-    		throw new IllegalArgumentException("IPv6 address cannot be null. Try IPv6Address.NONE if intention is 'no IPv6'");
-    	}
-    	/* VLAN can be null in this case, which means 'don't care' */
-    	if (switchDPID == null) {
-    		throw new IllegalArgumentException("Switch DPID cannot be null. Try DatapathId.NONE if intention is 'no DPID'");
-    	}
-    	if (switchPort == null) {
-    		throw new IllegalArgumentException("Switch port cannot be null. Try OFPort.ZERO if intention is 'no port'");
-    	}
-		
+			IPv4Address ipv4Address,
+			DatapathId switchDPID,
+			OFPort switchPort) {
 		DeviceIndex index = null;
 		if (secondaryIndexMap.size() > 0) {
 			EnumSet<DeviceField> keys =
-					getEntityKeys(macAddress, vlan, ipv4Address, ipv6Address,
+					getEntityKeys(macAddress, vlan, ipv4Address,
 							switchDPID, switchPort);
 			index = secondaryIndexMap.get(keys);
 		}
@@ -567,10 +515,9 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			Entity entity = new Entity(macAddress,
 					vlan,
 					ipv4Address,
-					ipv6Address,
 					switchDPID,
 					switchPort,
-					Entity.NO_DATE);
+					null);
 			deviceIterator =
 					new DeviceIndexInterator(this, index.queryByEntity(entity));
 		}
@@ -581,37 +528,18 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 						macAddress,
 						vlan,
 						ipv4Address,
-						ipv6Address,
 						switchDPID,
 						switchPort);
 		return di;
 	}
 
 	@Override
-	public Iterator<? extends IDevice> queryClassDevices(@Nonnull IEntityClass entityClass,
-			@Nonnull MacAddress macAddress,
-			@Nonnull VlanVid vlan,
-			@Nonnull IPv4Address ipv4Address,
-			@Nonnull IPv6Address ipv6Address,
-			@Nonnull DatapathId switchDPID,
-			@Nonnull OFPort switchPort) {
-		if (macAddress == null) {
-    		throw new IllegalArgumentException("MAC address cannot be null. Try MacAddress.NONE if intention is 'no MAC'");
-    	}
-    	if (ipv4Address == null) {
-    		throw new IllegalArgumentException("IPv4 address cannot be null. Try IPv4Address.NONE if intention is 'no IPv4'");
-    	}
-    	if (ipv6Address == null) {
-    		throw new IllegalArgumentException("IPv6 address cannot be null. Try IPv6Address.NONE if intention is 'no IPv6'");
-    	}
-    	/* VLAN can be null, which means 'don't care' */
-    	if (switchDPID == null) {
-    		throw new IllegalArgumentException("Switch DPID cannot be null. Try DatapathId.NONE if intention is 'no DPID'");
-    	}
-    	if (switchPort == null) {
-    		throw new IllegalArgumentException("Switch port cannot be null. Try OFPort.ZERO if intention is 'no port'");
-    	}
-    	
+	public Iterator<? extends IDevice> queryClassDevices(IEntityClass entityClass,
+			MacAddress macAddress,
+			VlanVid vlan,
+			IPv4Address ipv4Address,
+			DatapathId switchDPID,
+			OFPort switchPort) {
 		ArrayList<Iterator<Device>> iterators =
 				new ArrayList<Iterator<Device>>();
 		ClassState classState = getClassState(entityClass);
@@ -620,7 +548,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		if (classState.secondaryIndexMap.size() > 0) {
 			EnumSet<DeviceField> keys =
 					getEntityKeys(macAddress, vlan, ipv4Address,
-							ipv6Address, switchDPID, switchPort);
+							switchDPID, switchPort);
 			index = classState.secondaryIndexMap.get(keys);
 		}
 
@@ -632,7 +560,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 				return new DeviceIterator(deviceMap.values().iterator(),
 						new IEntityClass[] { entityClass },
 						macAddress, vlan, ipv4Address,
-						ipv6Address, switchDPID, switchPort);
+						switchDPID, switchPort);
 			} else {
 				// scan the entire class
 				iter = new DeviceIndexInterator(this, index.getAll());
@@ -643,10 +571,9 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 					new Entity(macAddress,
 							vlan,
 							ipv4Address,
-							ipv6Address,
 							switchDPID,
 							switchPort,
-							Entity.NO_DATE);
+							null);
 			iter = new DeviceIndexInterator(this,
 					index.queryByEntity(entity));
 		}
@@ -655,34 +582,16 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		return new MultiIterator<Device>(iterators.iterator());
 	}
 
-	protected Iterator<Device> getDeviceIteratorForQuery(@Nonnull MacAddress macAddress,
+	protected Iterator<Device> getDeviceIteratorForQuery(MacAddress macAddress,
 			VlanVid vlan,
-			@Nonnull IPv4Address ipv4Address,
-			@Nonnull IPv6Address ipv6Address,
-			@Nonnull DatapathId switchDPID,
-			@Nonnull OFPort switchPort) {
-		if (macAddress == null) {
-    		throw new IllegalArgumentException("MAC address cannot be null. Try MacAddress.NONE if intention is 'no MAC'");
-    	}
-    	if (ipv4Address == null) {
-    		throw new IllegalArgumentException("IPv4 address cannot be null. Try IPv4Address.NONE if intention is 'no IPv4'");
-    	}
-    	if (ipv6Address == null) {
-    		throw new IllegalArgumentException("IPv6 address cannot be null. Try IPv6Address.NONE if intention is 'no IPv6'");
-    	}
-    	/* VLAN can be null, which means 'don't care' */
-    	if (switchDPID == null) {
-    		throw new IllegalArgumentException("Switch DPID cannot be null. Try DatapathId.NONE if intention is 'no DPID'");
-    	}
-    	if (switchPort == null) {
-    		throw new IllegalArgumentException("Switch port cannot be null. Try OFPort.ZERO if intention is 'no port'");
-    	}
-		
+			IPv4Address ipv4Address,
+			DatapathId switchDPID,
+			OFPort switchPort) {
 		DeviceIndex index = null;
 		if (secondaryIndexMap.size() > 0) {
 			EnumSet<DeviceField> keys =
 					getEntityKeys(macAddress, vlan, ipv4Address,
-							ipv6Address, switchDPID, switchPort);
+							switchDPID, switchPort);
 			index = secondaryIndexMap.get(keys);
 		}
 
@@ -695,10 +604,9 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			Entity entity = new Entity(macAddress,
 					vlan,
 					ipv4Address,
-					ipv6Address,
 					switchDPID,
 					switchPort,
-					Entity.NO_DATE);
+					null);
 			deviceIterator =
 					new DeviceIndexInterator(this, index.queryByEntity(entity));
 		}
@@ -709,7 +617,6 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 						macAddress,
 						vlan,
 						ipv4Address,
-						ipv6Address,
 						switchDPID,
 						switchPort);
 		return di;
@@ -787,11 +694,6 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		public void deviceIPV4AddrChanged(IDevice device) {
 			generateDeviceEvent(device, "host-ipv4-addr-changed");
 		}
-		
-		@Override
-		public void deviceIPV6AddrChanged(IDevice device) {
-			generateDeviceEvent(device, "host-ipv6-addr-changed");
-		}
 
 		@Override
 		public void deviceVlanChanged(IDevice device) {
@@ -801,8 +703,6 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		private void generateDeviceEvent(IDevice device, String reason) {
 			List<IPv4Address> ipv4Addresses =
 					new ArrayList<IPv4Address>(Arrays.asList(device.getIPv4Addresses()));
-			List<IPv6Address> ipv6Addresses =
-					new ArrayList<IPv6Address>(Arrays.asList(device.getIPv6Addresses()));
 			List<SwitchPort> oldAps =
 					new ArrayList<SwitchPort>(Arrays.asList(device.getOldAP()));
 			List<SwitchPort> currentAps =
@@ -812,7 +712,6 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 
 			debugEventCategory.newEventNoFlush(new DeviceEvent(device.getMACAddress(),
 					ipv4Addresses,
-					ipv6Addresses,
 					oldAps,
 					currentAps,
 					vlanIds, reason));
@@ -908,8 +807,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	public void init(FloodlightModuleContext fmc) throws FloodlightModuleException {
 		this.perClassIndices =
 				new HashSet<EnumSet<DeviceField>>();
-		addIndex(true, EnumSet.of(DeviceField.IPv4));
-		addIndex(true, EnumSet.of(DeviceField.IPv6));
+		addIndex(true, EnumSet.of(DeviceField.IPV4));
 
 		this.deviceListeners = new ListenerDispatcher<String, IDeviceListener>();
 		this.suppressAPs = Collections.newSetFromMap(
@@ -1157,6 +1055,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		@Override
 		public boolean isCallbackOrderingPostreq(HAListenerTypeMarker type,
 				String name) {
+			// TODO Auto-generated method stub
 			return false;
 		}
 
@@ -1274,14 +1173,14 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	}
 
 	/**
-	 * Get sender IPv4 address from packet if the packet is an ARP
+	 * Get sender IP address from packet if the packet is an ARP
 	 * packet and if the source MAC address matches the ARP packets
 	 * sender MAC address.
 	 * @param eth
 	 * @param dlAddr
 	 * @return
 	 */
-	private IPv4Address getSrcIPv4AddrFromARP(Ethernet eth, MacAddress dlAddr) {
+	private IPv4Address getSrcNwAddr(Ethernet eth, MacAddress dlAddr) {
 		if (eth.getPayload() instanceof ARP) {
 			ARP arp = (ARP) eth.getPayload();
 			if ((arp.getProtocolType() == ARP.PROTO_TYPE_IP) && (arp.getSenderHardwareAddress().equals(dlAddr))) {
@@ -1289,21 +1188,6 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			}
 		}
 		return IPv4Address.NONE;
-	}
-	
-	/**
-	 * Get sender IPv6 address from packet if the packet is ND
-	 * 
-	 * @param eth
-	 * @param dlAddr
-	 * @return
-	 */
-	private IPv6Address getSrcIPv6Addr(Ethernet eth) {
-		if (eth.getPayload() instanceof IPv6) {
-			IPv6 ipv6 = (IPv6) eth.getPayload();
-			return ipv6.getSourceAddress();
-		}
-		return IPv6Address.NONE;
 	}
 
 	/**
@@ -1324,12 +1208,10 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			return null;
 
 		VlanVid vlan = VlanVid.ofVlan(eth.getVlanID());
-		IPv4Address ipv4Src = getSrcIPv4AddrFromARP(eth, dlAddr);
-		IPv6Address ipv6Src = ipv4Src.equals(IPv4Address.NONE) ? getSrcIPv6Addr(eth) : IPv6Address.NONE;
+		IPv4Address nwSrc = getSrcNwAddr(eth, dlAddr);
 		return new Entity(dlAddr,
 				vlan,
-				ipv4Src,
-				ipv6Src,
+				nwSrc,
 				swdpid,
 				port,
 				new Date());
@@ -1357,16 +1239,15 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		if (senderAddr.isBroadcast() || senderAddr.isMulticast())
 			return;
 		// Ignore zero sender mac
-		if (senderAddr.equals(MacAddress.of(0)))
+		if (senderAddr.getLong() == 0)
 			return;
 
 		VlanVid vlan = VlanVid.ofVlan(eth.getVlanID());
 		IPv4Address nwSrc = arp.getSenderProtocolAddress();
 
 		Entity e =  new Entity(senderAddr,
-				vlan, /* will either be a valid tag or VlanVid.ZERO if untagged */
-				nwSrc,
-				IPv6Address.NONE, /* must be none for ARP */
+				((vlan.getVlan() >= 0) ? vlan : null),
+				((nwSrc.getInt() != 0) ? nwSrc : null),
 				swdpid,
 				port,
 				new Date());
@@ -1382,31 +1263,26 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	protected Entity getDestEntityFromPacket(Ethernet eth) {
 		MacAddress dlAddr = eth.getDestinationMACAddress();
 		VlanVid vlan = VlanVid.ofVlan(eth.getVlanID());
-		IPv4Address ipv4Dst = IPv4Address.NONE;
-		IPv6Address ipv6Dst = IPv6Address.NONE;
+		IPv4Address nwDst = IPv4Address.NONE;
 
 		// Ignore broadcast/multicast destination
 		if (dlAddr.isBroadcast() || dlAddr.isMulticast())
 			return null;
 		// Ignore zero dest mac
-		if (dlAddr.equals(MacAddress.of(0)))
+		if (dlAddr.getLong() == 0)
 			return null;
 
 		if (eth.getPayload() instanceof IPv4) {
 			IPv4 ipv4 = (IPv4) eth.getPayload();
-			ipv4Dst = ipv4.getDestinationAddress();
-		} else if (eth.getPayload() instanceof IPv6) {
-			IPv6 ipv6 = (IPv6) eth.getPayload();
-			ipv6Dst = ipv6.getDestinationAddress();
+			nwDst = ipv4.getDestinationAddress();
 		}
 		
 		return new Entity(dlAddr,
 				vlan,
-				ipv4Dst,
-				ipv6Dst,
-				DatapathId.NONE,
-				OFPort.ZERO,
-				Entity.NO_DATE);
+				nwDst,
+				null,
+				null,
+				null);
 	}
 
 	/**
@@ -1621,13 +1497,12 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 				cntPacketOnInternalPortForKnownDevice.increment();
 				break;
 			}
-			
 			int entityindex = -1;
 			if ((entityindex = device.entityIndex(entity)) >= 0) {
 				// Entity already exists
 				// update timestamp on the found entity
 				Date lastSeen = entity.getLastSeenTimestamp();
-				if (lastSeen.equals(Entity.NO_DATE)) {
+				if (lastSeen == null) {
 					lastSeen = new Date();
 					entity.setLastSeenTimestamp(lastSeen);
 				}
@@ -1678,9 +1553,11 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 				boolean moved = device.updateAttachmentPoint(entity.getSwitchDPID(),
 						entity.getSwitchPort(),
 						entity.getLastSeenTimestamp());
+				// TODO: use update mechanism instead of sending the
+				// notification directly
 				if (moved) {
 					// we count device moved events in sendDeviceMovedNotification()
-					// TODO remove this. It's now done in the event handler as a result of the update above... sendDeviceMovedNotification(device);
+					sendDeviceMovedNotification(device);
 					if (logger.isTraceEnabled()) {
 						logger.trace("Device moved: attachment points {}," +
 								"entities {}", device.attachmentPoints,
@@ -1714,51 +1591,45 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		return true;
 	}
 
+
+
+
+
 	protected EnumSet<DeviceField> findChangedFields(Device device,
 			Entity newEntity) {
 		EnumSet<DeviceField> changedFields =
-				EnumSet.of(DeviceField.IPv4,
-						DeviceField.IPv6,
+				EnumSet.of(DeviceField.IPV4,
 						DeviceField.VLAN,
 						DeviceField.SWITCH);
 
-		/*
-		 * Do we really need this here?
-		 *
-		if (newEntity.getIpv4Address().equals(IPv4Address.NONE))
-			changedFields.remove(DeviceField.IPv4);
-		if (newEntity.getIpv6Address().equals(IPv6Address.NONE))
-			changedFields.remove(DeviceField.IPv6);
-		/*if (newEntity.getVlan().equals(VlanVid.ZERO)) TODO VLAN is ZERO here, since the actual Device and Entity must have some sort of VLAN, either untagged (ZERO) or some value 
+		if (newEntity.getIpv4Address() == null)
+			changedFields.remove(DeviceField.IPV4);
+		if (newEntity.getVlan() == null)
 			changedFields.remove(DeviceField.VLAN);
-		if (newEntity.getSwitchDPID().equals(DatapathId.NONE) ||
-				newEntity.getSwitchPort().equals(OFPort.ZERO))
-			changedFields.remove(DeviceField.SWITCH); 
+		if (newEntity.getSwitchDPID() == null ||
+				newEntity.getSwitchPort() == null)
+			changedFields.remove(DeviceField.SWITCH);
 
-		if (changedFields.size() == 0) return changedFields; */
+		if (changedFields.size() == 0) return changedFields;
 
 		for (Entity entity : device.getEntities()) {
-			if (newEntity.getIpv4Address().equals(IPv4Address.NONE) || /* NONE means 'not in this packet' */
-					entity.getIpv4Address().equals(newEntity.getIpv4Address())) /* these (below) might be defined and if they are and changed, then the device has changed */
-				changedFields.remove(DeviceField.IPv4);
-			if (newEntity.getIpv6Address().equals(IPv6Address.NONE) || /* NONE means 'not in this packet' */
-					entity.getIpv6Address().equals(newEntity.getIpv6Address()))
-				changedFields.remove(DeviceField.IPv6);
-			if (entity.getVlan().equals(newEntity.getVlan())) /* these (below) must be defined in each and every packet-in, and if different signal a device field change */
+			if (newEntity.getIpv4Address() == null ||
+					(entity.getIpv4Address() != null &&
+					entity.getIpv4Address().equals(newEntity.getIpv4Address())))
+				changedFields.remove(DeviceField.IPV4);
+			if (newEntity.getVlan() == null ||
+					(entity.getVlan() != null &&
+					entity.getVlan().equals(newEntity.getVlan())))
 				changedFields.remove(DeviceField.VLAN);
-			if (newEntity.getSwitchDPID().equals(DatapathId.NONE) ||
-					newEntity.getSwitchPort().equals(OFPort.ZERO) ||
-					(entity.getSwitchDPID().equals(newEntity.getSwitchDPID()) &&
+			if (newEntity.getSwitchDPID() == null ||
+					newEntity.getSwitchPort() == null ||
+					(entity.getSwitchDPID() != null &&
+					entity.getSwitchPort() != null &&
+					entity.getSwitchDPID().equals(newEntity.getSwitchDPID()) &&
 					entity.getSwitchPort().equals(newEntity.getSwitchPort())))
 				changedFields.remove(DeviceField.SWITCH);
 		}
 
-		if (changedFields.contains(DeviceField.SWITCH)) {
-			if (!isValidAttachmentPoint(newEntity.getSwitchDPID(), newEntity.getSwitchPort())) {
-				changedFields.remove(DeviceField.SWITCH);
-			}
-		}
-		
 		return changedFields;
 	}
 
@@ -1798,15 +1669,12 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			 case CHANGE:
 				 for (DeviceField field : update.fieldsChanged) {
 					 switch (field) {
-					 case IPv4:
+					 case IPV4:
 						 listener.deviceIPV4AddrChanged(update.device);
-						 break;
-					 case IPv6:
-						 listener.deviceIPV6AddrChanged(update.device);
 						 break;
 					 case SWITCH:
 					 case PORT:
-						 listener.deviceMoved(update.device); // TODO why was this commented out?
+						 //listener.deviceMoved(update.device);
 						 break;
 					 case VLAN:
 						 listener.deviceVlanChanged(update.device);
@@ -1834,26 +1702,19 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 			 case MAC:
 				 // MAC address is always present
 				 break;
-			 case IPv4:
-			 case IPv6:
-				 if (e.ipv4Address.equals(IPv4Address.NONE) && e.ipv6Address.equals(IPv6Address.NONE)) {
-					 return false; // mutually exclusive
-				 }
+			 case IPV4:
+				 if (e.ipv4Address == null) return false;
 				 break;
 			 case SWITCH:
-				 if (e.switchDPID.equals(DatapathId.NONE)) {
-					 return false;
-				 }
+				 if (e.switchDPID == null) return false;
 				 break;
 			 case PORT:
-				 if (e.switchPort.equals(OFPort.ZERO)) {
-					 return false;
-				 }
+				 if (e.switchPort == null) return false;
 				 break;
 			 case VLAN:
-				 if (e.vlan == null) { /* VLAN is null for 'don't care' or 'unspecified'. It's VlanVid.ZERO for untagged. */
-					 return false; 	   /* For key field of VLAN, the VLAN **MUST** be set to either ZERO or some value. */
-				 }
+				 // FIXME: vlan==null is ambiguous: it can mean: not present
+				 // or untagged
+				 //if (e.vlan == null) return false;
 				 break;
 			 default:
 				 // we should never get here. unless somebody extended
@@ -1958,7 +1819,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 				 toRemove.clear();
 				 toKeep.clear();
 				 for (Entity e : d.getEntities()) {
-					 if (!e.getLastSeenTimestamp().equals(Entity.NO_DATE) &&
+					 if (e.getLastSeenTimestamp() != null &&
 							 0 > e.getLastSeenTimestamp().compareTo(cutoff)) {
 						 // individual entity needs to be removed
 						 toRemove.add(e);
@@ -2076,19 +1937,20 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		 }
 	 }
 
-	 private EnumSet<DeviceField> getEntityKeys(@Nonnull MacAddress macAddress,
-			 VlanVid vlan, /* A null VLAN means 'don't care'; VlanVid.ZERO means 'untagged' */
-			 @Nonnull IPv4Address ipv4Address,
-			 @Nonnull IPv6Address ipv6Address,
-			 @Nonnull DatapathId switchDPID,
-			 @Nonnull OFPort switchPort) {
+	 private EnumSet<DeviceField> getEntityKeys(MacAddress macAddress,
+			 VlanVid vlan,
+			 IPv4Address ipv4Address,
+			 DatapathId switchDPID,
+			 OFPort switchPort) {
+		 // FIXME: vlan==null is a valid search. Need to handle this
+		 // case correctly. Note that the code will still work correctly.
+		 // But we might do a full device search instead of using an index.
 		 EnumSet<DeviceField> keys = EnumSet.noneOf(DeviceField.class);
-		 if (!macAddress.equals(MacAddress.NONE)) keys.add(DeviceField.MAC);
-		 if (vlan != null) keys.add(DeviceField.VLAN); /* TODO verify fix. null means 'don't care' and will conduct full search; VlanVid.ZERO means 'untagged' and only uses untagged index */
-		 if (!ipv4Address.equals(IPv4Address.NONE)) keys.add(DeviceField.IPv4);
-		 if (!ipv6Address.equals(IPv6Address.NONE)) keys.add(DeviceField.IPv6);
-		 if (!switchDPID.equals(DatapathId.NONE)) keys.add(DeviceField.SWITCH);
-		 if (!switchPort.equals(OFPort.ZERO)) keys.add(DeviceField.PORT);
+		 if (macAddress != null) keys.add(DeviceField.MAC);
+		 if (vlan != null) keys.add(DeviceField.VLAN);
+		 if (ipv4Address != null) keys.add(DeviceField.IPV4);
+		 if (switchDPID != null) keys.add(DeviceField.SWITCH);
+		 if (switchPort != null) keys.add(DeviceField.PORT);
 		 return keys;
 	 }
 
@@ -2107,7 +1969,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		 return new Device(this, deviceKey, entity, entityClass);
 	 }
 
-	 // TODO: FIX THIS. What's 'this' that needs fixing?
+	 // TODO: FIX THIS.
 	 protected Device allocateDevice(Long deviceKey,
 			 String dhcpClientName,
 			 List<AttachmentPoint> aps,
@@ -2124,8 +1986,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		 return new Device(device, entity, insertionpoint);
 	 }
 
-	 //not used 
-	 /* TODO then let's get rid of it?
+	 //not used
 	 protected Device allocateDevice(Device device, Set <Entity> entities) {
 		 List <AttachmentPoint> newPossibleAPs =
 				 new ArrayList<AttachmentPoint>();
@@ -2153,7 +2014,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 				 entities, device.getEntityClass());
 		 d.updateAttachmentPoint();
 		 return d;
-	 } */
+	 }
 
 	 // *********************
 	 // ITopologyListener
@@ -2172,6 +2033,7 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 				 }
 			 }
 		 }
+
 		 while (diter.hasNext()) {
 			 Device d = diter.next();
 			 if (d.updateAttachmentPoint()) {
@@ -2491,7 +2353,6 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 							 // Do we have a device for this entity??
 									 IDevice d = findDevice(MacAddress.of(se.macAddress), VlanVid.ofVlan(se.vlan),
 											 IPv4Address.of(se.ipv4Address),
-											 IPv6Address.NONE,
 											 DatapathId.of(se.switchDPID),
 											 OFPort.of(se.switchPort));
 									 if (d != null) {
@@ -2547,10 +2408,8 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 	 private class DeviceEvent {
 		 @EventColumn(name = "MAC", description = EventFieldType.MAC)
 		 private final MacAddress macAddress;
-		 @EventColumn(name = "IPv4s", description = EventFieldType.IPv4)
+		 @EventColumn(name = "IPs", description = EventFieldType.IPv4)
 		 private final List<IPv4Address> ipv4Addresses;
-		 @EventColumn(name = "IPv6s", description = EventFieldType.IPv6)
-		 private final List<IPv6Address> ipv6Addresses;
 		 @EventColumn(name = "Old Attachment Points",
 				 description = EventFieldType.COLLECTION_ATTACHMENT_POINT)
 		 private final List<SwitchPort> oldAttachmentPoints;
@@ -2563,14 +2422,12 @@ public class DeviceManagerImpl implements IDeviceService, IOFMessageListener, IT
 		 private final String reason;
 
 		 public DeviceEvent(MacAddress macAddress, List<IPv4Address> ipv4Addresses,
-				 List<IPv6Address> ipv6Addresses,
 				 List<SwitchPort> oldAttachmentPoints,
 				 List<SwitchPort> currentAttachmentPoints,
 				 List<VlanVid> vlanIds, String reason) {
 			 super();
 			 this.macAddress = macAddress;
 			 this.ipv4Addresses = ipv4Addresses;
-			 this.ipv6Addresses = ipv6Addresses;
 			 this.oldAttachmentPoints = oldAttachmentPoints;
 			 this.currentAttachmentPoints = currentAttachmentPoints;
 			 this.vlanIds = vlanIds;

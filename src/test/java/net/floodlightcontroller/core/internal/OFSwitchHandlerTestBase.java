@@ -27,11 +27,9 @@ import java.util.concurrent.TimeUnit;
 import org.easymock.EasyMock;
 import org.hamcrest.CoreMatchers;
 import org.hamcrest.Matchers;
-
-import io.netty.util.Timeout;
-import io.netty.util.Timer;
-import io.netty.util.TimerTask;
-
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.Timer;
+import org.jboss.netty.util.TimerTask;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,7 +48,6 @@ import net.floodlightcontroller.debugcounter.IDebugCounterService;
 
 import org.projectfloodlight.openflow.protocol.OFBadActionCode;
 import org.projectfloodlight.openflow.protocol.OFBadRequestCode;
-import org.projectfloodlight.openflow.protocol.OFBarrierReply;
 import org.projectfloodlight.openflow.protocol.OFControllerRole;
 import org.projectfloodlight.openflow.protocol.OFDescStatsReply;
 import org.projectfloodlight.openflow.protocol.OFErrorMsg;
@@ -523,15 +520,16 @@ public abstract class OFSwitchHandlerTestBase {
 		// TODO: hmmm. While it's not incorrect that we set the attribute
 		// again it looks odd. Maybe change
 		expect(sw.getOFFactory()).andReturn(factory).anyTimes();
-		expect(sw.write(anyObject(OFMessage.class))).andReturn(true).anyTimes();
-		expect(sw.write(anyObject(Iterable.class))).andReturn(Collections.EMPTY_LIST).anyTimes();
-		expect(sw.getNumTables()).andStubReturn((short)0);
+		sw.write(anyObject(OFMessage.class));
+		expectLastCall().anyTimes();
+		sw.write(anyObject(Iterable.class));
+		expectLastCall().anyTimes();
+		expect(sw.getTables()).andStubReturn((short)0);
 		sw.setAttribute(IOFSwitch.SWITCH_SUPPORTS_NX_ROLE, supportsNxRole);
 		expectLastCall().anyTimes();
 		if (SwitchStatus.MASTER == newStatus) {
 			if (factory.getVersion().compareTo(OFVersion.OF_13) >= 0) {
-				expect(sw.getTables()).andReturn(Collections.EMPTY_LIST).once();
-				expect(sw.getTableFeatures(TableId.ZERO)).andReturn(TableFeatures.of(createTableFeaturesStatsReply().getEntries().get(0))).anyTimes();
+				expect(sw.getMaxTableForTableMissFlow()).andReturn(TableId.ZERO).times(2);
 			}
 		}
 
@@ -548,13 +546,8 @@ public abstract class OFSwitchHandlerTestBase {
 			switchManager.switchStatusChanged(sw, SwitchStatus.HANDSHAKE, newStatus);
 		}
 		replay(sw, switchManager);
-		
+
 		switchHandler.sendRoleRequest(role);
-		
-		/* Now, trigger transition to master */
-		OFBarrierReply br = getFactory().buildBarrierReply()
-				.build();
-		switchHandler.processOFMessage(br);
 
 		verify(sw, switchManager);
 	}
@@ -599,10 +592,11 @@ public abstract class OFSwitchHandlerTestBase {
 		// prepare mocks and inject the role reply message
 		reset(sw);
 		expect(sw.getOFFactory()).andReturn(factory).anyTimes();
-		expect(sw.write(anyObject(OFMessage.class))).andReturn(true).anyTimes();
-		expect(sw.write(anyObject(Iterable.class))).andReturn(Collections.EMPTY_LIST).anyTimes();
-		expect(sw.getTables()).andStubReturn(Collections.EMPTY_LIST);
-		expect(sw.getNumTables()).andStubReturn((short) 0);
+		sw.write(anyObject(OFMessage.class));
+		expectLastCall().anyTimes();
+		sw.write(anyObject(Iterable.class));
+		expectLastCall().anyTimes();
+		expect(sw.getTables()).andStubReturn((short)0);
 		sw.setAttribute(IOFSwitch.SWITCH_SUPPORTS_NX_ROLE, true);
 		expectLastCall().once();
 		sw.setControllerRole(OFControllerRole.ROLE_MASTER);
@@ -610,10 +604,8 @@ public abstract class OFSwitchHandlerTestBase {
 		expect(sw.getStatus()).andReturn(SwitchStatus.HANDSHAKE).once();
 		sw.setStatus(SwitchStatus.MASTER);
 		expectLastCall().once();
-
 		if (factory.getVersion().compareTo(OFVersion.OF_13) >= 0) {
-			//expect(sw.getMaxTableForTableMissFlow()).andReturn(TableId.ZERO).times(1);
-			expect(sw.getTableFeatures(TableId.ZERO)).andReturn(TableFeatures.of(createTableFeaturesStatsReply().getEntries().get(0))).anyTimes();
+			expect(sw.getMaxTableForTableMissFlow()).andReturn(TableId.ZERO).times(2);
 		}
 		replay(sw);
 
@@ -623,9 +615,9 @@ public abstract class OFSwitchHandlerTestBase {
 		replay(switchManager);
 		OFMessage reply = getRoleReply(xid, OFControllerRole.ROLE_MASTER);
 
-		/* Go into the MasterState */
+		// sendMessageToHandler will verify and rest controller mock
 		switchHandler.processOFMessage(reply);
-		
+
 		assertThat(switchHandler.getStateForTesting(), CoreMatchers.instanceOf(OFSwitchHandshakeHandler.MasterState.class));
 	}
 
@@ -693,9 +685,11 @@ public abstract class OFSwitchHandlerTestBase {
 		// prepare mocks and inject the role reply message
 		reset(sw);
 		expect(sw.getOFFactory()).andReturn(factory).anyTimes();
-		expect(sw.write(anyObject(OFMessage.class))).andReturn(true).anyTimes();
-		expect(sw.write(anyObject(Iterable.class))).andReturn(Collections.EMPTY_LIST).anyTimes();
-		expect(sw.getNumTables()).andStubReturn((short)0);
+		sw.write(anyObject(OFMessage.class));
+		expectLastCall().anyTimes();
+		sw.write(anyObject(Iterable.class));
+		expectLastCall().anyTimes();
+		expect(sw.getTables()).andStubReturn((short)0);
 		sw.setAttribute(IOFSwitch.SWITCH_SUPPORTS_NX_ROLE, false);
 		expectLastCall().once();
 		sw.setControllerRole(OFControllerRole.ROLE_MASTER);
@@ -704,8 +698,7 @@ public abstract class OFSwitchHandlerTestBase {
 		sw.setStatus(SwitchStatus.MASTER);
 		expectLastCall().once();
 		if (factory.getVersion().compareTo(OFVersion.OF_13) >= 0) {
-			expect(sw.getTables()).andReturn(Collections.EMPTY_LIST).once();
-			expect(sw.getTableFeatures(TableId.ZERO)).andReturn(TableFeatures.of(createTableFeaturesStatsReply().getEntries().get(0))).anyTimes();
+			expect(sw.getMaxTableForTableMissFlow()).andReturn(TableId.ZERO).times(2);
 		}
 		replay(sw);
 
@@ -723,8 +716,7 @@ public abstract class OFSwitchHandlerTestBase {
 		switchManager.switchStatusChanged(sw, SwitchStatus.HANDSHAKE, SwitchStatus.MASTER);
 		expectLastCall().once();
 		replay(switchManager);
-		
-		/* Go into the MasterState */
+		// sendMessageToHandler will verify and rest controller mock
 		switchHandler.processOFMessage(err);
 
 		assertThat(switchHandler.getStateForTesting(), CoreMatchers.instanceOf(OFSwitchHandshakeHandler.MasterState.class));
@@ -748,15 +740,17 @@ public abstract class OFSwitchHandlerTestBase {
 		assertThat(switchHandler.getStateForTesting(), CoreMatchers.instanceOf(OFSwitchHandshakeHandler.WaitInitialRoleState.class));
 
 		// Set the role
-		setupSwitchSendRoleRequestAndVerify(null, OFControllerRole.ROLE_MASTER); /* don't care about the XID, since we assume the reply is lost */
+		setupSwitchSendRoleRequestAndVerify(null, OFControllerRole.ROLE_MASTER);
 		assertThat(switchHandler.getStateForTesting(), CoreMatchers.instanceOf(OFSwitchHandshakeHandler.WaitInitialRoleState.class));
 
 		// prepare mocks and inject the role reply message
 		reset(sw);
 		expect(sw.getOFFactory()).andReturn(factory).anyTimes();
-		expect(sw.write(anyObject(OFMessage.class))).andReturn(true).anyTimes();
-		expect(sw.write(anyObject(Iterable.class))).andReturn(Collections.EMPTY_LIST).anyTimes();
-		expect(sw.getNumTables()).andStubReturn((short)0);
+		sw.write(anyObject(OFMessage.class));
+		expectLastCall().anyTimes();
+		sw.write(anyObject(Iterable.class));
+		expectLastCall().anyTimes();
+		expect(sw.getTables()).andStubReturn((short)0);
 		sw.setAttribute(IOFSwitch.SWITCH_SUPPORTS_NX_ROLE, false);
 		expectLastCall().once();
 		sw.setControllerRole(OFControllerRole.ROLE_MASTER);
@@ -765,14 +759,13 @@ public abstract class OFSwitchHandlerTestBase {
 		sw.setStatus(SwitchStatus.MASTER);
 		expectLastCall().once();
 		if (factory.getVersion().compareTo(OFVersion.OF_13) >= 0) {
-			expect(sw.getTables()).andReturn(Collections.EMPTY_LIST).once();
-			expect(sw.getTableFeatures(TableId.ZERO)).andReturn(TableFeatures.of(createTableFeaturesStatsReply().getEntries().get(0))).anyTimes();
+			expect(sw.getMaxTableForTableMissFlow()).andReturn(TableId.ZERO).times(2);
 		}
 		replay(sw);
 
-		OFMessage m = factory.barrierReply();
+		OFMessage m = factory.buildBarrierReply().build();
 
-		Thread.sleep(timeout + 5);
+		Thread.sleep(timeout+5);
 
 		reset(switchManager);
 		switchManager.switchStatusChanged(sw, SwitchStatus.HANDSHAKE, SwitchStatus.MASTER);
@@ -916,9 +909,11 @@ public abstract class OFSwitchHandlerTestBase {
 		// prepare mocks and inject the role reply message
 		reset(sw);
 		expect(sw.getOFFactory()).andReturn(factory).anyTimes();
-		expect(sw.write(anyObject(OFMessage.class))).andReturn(true).anyTimes();
-		expect(sw.write(anyObject(Iterable.class))).andReturn(Collections.EMPTY_LIST).anyTimes();
-		expect(sw.getNumTables()).andStubReturn((short)0);
+		sw.write(anyObject(OFMessage.class));
+		expectLastCall().anyTimes();
+		sw.write(anyObject(Iterable.class));
+		expectLastCall().anyTimes();
+		expect(sw.getTables()).andStubReturn((short)0);
 		sw.setAttribute(IOFSwitch.SWITCH_SUPPORTS_NX_ROLE, true);
 		expectLastCall().once();
 		sw.setControllerRole(OFControllerRole.ROLE_MASTER);
@@ -926,7 +921,7 @@ public abstract class OFSwitchHandlerTestBase {
 		expect(sw.getStatus()).andReturn(SwitchStatus.HANDSHAKE).once();
 		sw.setStatus(SwitchStatus.MASTER);
 		expectLastCall().once();
-		expect(sw.getTables()).andReturn(Collections.EMPTY_LIST).once();
+		expect(sw.getMaxTableForTableMissFlow()).andReturn(TableId.ZERO).times(2);
 		replay(sw);
 
 		reset(switchManager);

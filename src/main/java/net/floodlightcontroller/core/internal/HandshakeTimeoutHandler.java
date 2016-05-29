@@ -19,18 +19,22 @@ package net.floodlightcontroller.core.internal;
 
 import java.util.concurrent.TimeUnit;
 
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.Timeout;
-import io.netty.util.Timer;
-import io.netty.util.TimerTask;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelStateEvent;
+import org.jboss.netty.channel.Channels;
+import org.jboss.netty.channel.SimpleChannelUpstreamHandler;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.Timer;
+import org.jboss.netty.util.TimerTask;
 
 /**
  * Trigger a timeout if a switch fails to complete handshake soon enough
  */
-public class HandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
+public class HandshakeTimeoutHandler
+    extends SimpleChannelUpstreamHandler {
 
-    static final HandshakeTimeoutException EXCEPTION = new HandshakeTimeoutException();
+    static final HandshakeTimeoutException EXCEPTION =
+            new HandshakeTimeoutException();
 
     final OFChannelHandler handshakeHandler;
     final Timer timer;
@@ -48,20 +52,22 @@ public class HandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+    public void channelOpen(ChannelHandlerContext ctx, ChannelStateEvent e)
+            throws Exception {
         if (timeoutNanos > 0) {
-            timeout = timer.newTimeout(new HandshakeTimeoutTask(ctx), timeoutNanos, TimeUnit.NANOSECONDS);
+            timeout = timer.newTimeout(new HandshakeTimeoutTask(ctx),
+                                       timeoutNanos, TimeUnit.NANOSECONDS);
         }
-        super.channelActive(ctx);
+        ctx.sendUpstream(e);
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e)
+            throws Exception {
         if (timeout != null) {
             timeout.cancel();
             timeout = null;
         }
-        super.channelInactive(ctx);
     }
 
     private final class HandshakeTimeoutTask implements TimerTask {
@@ -78,11 +84,11 @@ public class HandshakeTimeoutHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            if (!ctx.channel().isOpen()) {
+            if (!ctx.getChannel().isOpen()) {
                 return;
             }
             if (!handshakeHandler.isSwitchHandshakeComplete())
-                ctx.fireExceptionCaught(EXCEPTION);
+                Channels.fireExceptionCaught(ctx, EXCEPTION);
         }
     }
 }

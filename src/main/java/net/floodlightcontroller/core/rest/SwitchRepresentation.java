@@ -47,7 +47,7 @@ public class SwitchRepresentation {
         // IOFSwitch
         this.buffers = sw.getBuffers();
         this.capabilities = sw.getCapabilities();
-        this.tables = sw.getNumTables();
+        this.tables = sw.getTables();
         this.inetAddress = sw.getInetAddress();
         this.sortedPorts = sw.getSortedPorts();
         this.isConnected = sw.isConnected();
