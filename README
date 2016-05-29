@@ -1,0 +1,8 @@
+*********************Port Scan Detection in Software Defined Network (Floodlight Controller)*********************************************
+
+Features:
+Implemented Horizontal scan and vertical port scan detection in the Floodlight Controller.
+Algorithms used: Threashold Random Walk and Rate Limiter 
+
+Isolation of the attacker from the network was implemented by modifying the firewall module in the controller.
+Drop Flows were added using curl client which calls the rest API of the Floodlight Controller.
